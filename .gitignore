@@ -5,3 +5,4 @@ build
 # Added by cargo
 
 /target
+*.log
