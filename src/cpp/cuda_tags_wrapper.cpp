@@ -5,6 +5,7 @@
 #include "third_party/apriltag/tag36h11.h"
 #include <cstdio>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
@@ -65,16 +66,29 @@ rust::Vec<DetectionResult> CudaTagsWrapper::process(RustImage image) {
                                      image.stride, image.channels);
   if (cvImage.cols != this->gpu_processor->width() ||
       cvImage.rows != this->gpu_processor->height()) {
-    throw std::runtime_error("Image size mismatch");
+    delete this->gpu_processor;
+    this->gpu_processor = new frc971::apriltag::GpuDetector(
+        cvImage.cols, cvImage.rows, this->tags_detector, this->camera_matrix,
+        this->dist_coeffs);
   }
 
-  if (cvImage.type() != CV_8UC1) {
-    this->gpu_processor->DetectColor(cvImage.ptr());
-  } else {
+  if (cvImage.type() == CV_8UC1) {
     this->gpu_processor->DetectGrayHost(cvImage.ptr());
+  } else {
+    cv::Mat gray;
+    if (cvImage.type() == CV_8UC3) {
+      cv::cvtColor(cvImage, gray, cv::COLOR_BGR2GRAY);
+    } else if (cvImage.type() == CV_8UC4) {
+      cv::cvtColor(cvImage, gray, cv::COLOR_BGRA2GRAY);
+    } else {
+      throw std::runtime_error("Unsupported image type for detection");
+    }
+
+    this->gpu_processor->DetectGrayHost(gray.ptr());
   }
 
-  return to_rust_vec(this->gpu_processor->Detections());
+  const zarray_t *detections = this->gpu_processor->Detections();
+  return to_rust_vec(detections);
 }
 
 CudaTagsWrapper::CudaTagsWrapper(TagType tagType, CameraMatrix camMatrix,
@@ -100,7 +114,10 @@ CudaTagsWrapper::CudaTagsWrapper(TagType tagType, CameraMatrix camMatrix,
 
 CudaTagsWrapper::~CudaTagsWrapper() {
   delete this->gpu_processor;
-  delete this->tags_detector;
+  if (this->tags_detector != nullptr) {
+    apriltag_detector_destroy(this->tags_detector);
+    this->tags_detector = nullptr;
+  }
 }
 
 cv::Mat process_with_opencv(rust::Slice<std::uint8_t> pixels,
