@@ -1,0 +1,45 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Linux",
+      "intelliSenseMode": "linux-gcc-x64",
+      "compilerPath": "/usr/bin/g++",
+      "cStandard": "c11",
+      "cppStandard": "c++20",
+      "defines": [
+        "__CUDACC__"
+      ],
+      "includePath": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/frc971/orin",
+        "${workspaceFolder}/third_party/apriltag",
+        "${workspaceFolder}/third_party/apriltag/common",
+        "/usr/local/cuda/include",
+        "/usr/include/opencv4",
+        "/usr/lib/jvm/default-java/include",
+        "/usr/lib/jvm/default-java/include/linux",
+        "/usr/local/include",
+        "/usr/local/include/wpiutil",
+        "/home/ubuntu/Documents/allwpilib/wpiutil/src/main/native/include",
+        "/usr/lib/jvm/java-17-openjdk-arm64/include",
+        "/usr/lib/jvm/java-17-openjdk-arm64/include/linux/",
+        "./target/cxxbridge/"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}",
+          "${workspaceFolder}/frc971/orin",
+          "${workspaceFolder}/third_party/apriltag",
+          "${workspaceFolder}/third_party/apriltag/common",
+          "/usr/local/include/wpiutil",
+          "/home/ubuntu/Documents/allwpilib/wpiutil/src/main/native/include"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+    }
+  ]
+}
+
+

@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES 87)
@@ -38,6 +39,7 @@ add_library( 971apriltag SHARED
         frc971/orin/cuda.cc
 	GpuDetectorJNI.cc
 	)
+
 target_link_libraries(971apriltag PRIVATE ${JNI_LIBRARIES}
 	${CMAKE_SOURCE_DIR}/third_party/apriltag/build/libapriltag.a wpiutil
 	)
