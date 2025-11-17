@@ -3,6 +3,7 @@
 cd ~/Documents/CudaTags
 
 
+cd detection
 cd third_party/apriltag
 mkdir build
 cd build

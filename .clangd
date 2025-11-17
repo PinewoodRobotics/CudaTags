@@ -17,5 +17,7 @@ CompileFlags:
     - -I/usr/lib/jvm/java-17-openjdk-arm64/include
     - -I/usr/lib/jvm/java-17-openjdk-arm64/include/linux
     - -I../target/cxxbridge
+    - -I/usr/include/python3.10
+    - -I/usr/include/pybind11
 Index:
   Background: Build

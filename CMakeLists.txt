@@ -34,3 +34,30 @@ target_link_libraries(
   ${OpenCV_LIBS}
   wpiutil
 )
+
+##################################
+
+project(cuda_tags_python)
+
+find_package(pybind11 CONFIG REQUIRED)
+pybind11_add_module(cuda_tags
+    src/main/python/cpp/binding.cpp
+    src/main/python/cpp/cuda_tags.cpp
+)
+
+target_include_directories(
+  cuda_tags PRIVATE
+  ${JNI_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
+  ${CMAKE_SOURCE_DIR}/detection
+  /usr/local/cuda/include
+)
+
+target_link_libraries(
+  cuda_tags PRIVATE
+  971apriltag
+  ${CMAKE_SOURCE_DIR}/detection/third_party/apriltag/build/libapriltag.a
+  ${JNI_LIBRARIES}
+  ${OpenCV_LIBS}
+  wpiutil
+)
