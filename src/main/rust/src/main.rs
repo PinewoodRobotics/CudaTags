@@ -1,4 +1,6 @@
-use CudaTags::bridge::ffi::{CameraMatrix, DistCoeffs, RustImage, TagType, make_cuda_tag_detector};
+use cuda_tags::bridge::ffi::{
+    CameraMatrix, DistCoeffs, RustImage, TagType, make_cuda_tag_detector,
+};
 use opencv::{core, highgui, imgproc, prelude::*, videoio};
 
 use std::time::Instant;

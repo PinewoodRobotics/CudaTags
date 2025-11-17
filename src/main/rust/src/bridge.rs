@@ -5,7 +5,7 @@ use std::pin::Pin;
 pub mod ffi {
 
     unsafe extern "C++" {
-        include!("src/cpp/cuda_tags_wrapper.h");
+        include!("cuda_tags_wrapper.h");
         type CudaTagsWrapper;
 
         fn make_cuda_tag_detector(

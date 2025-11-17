@@ -1,7 +1,7 @@
 #pragma once
 
 #include "frc971/orin/971apriltag.h"
-#include "target/cxxbridge/rust/cxx.h"
+#include "rust/cxx.h"
 #include "third_party/apriltag/apriltag.h"
 #include <memory>
 #include <opencv2/core.hpp>

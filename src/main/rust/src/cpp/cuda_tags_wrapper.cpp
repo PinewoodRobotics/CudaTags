@@ -1,6 +1,6 @@
 #include "cuda_tags_wrapper.h"
+#include "cuda_tags/src/bridge.rs.h"
 #include "frc971/orin/971apriltag.h"
-#include "target/cxxbridge/CudaTags/src/bridge.rs.h"
 #include "third_party/apriltag/apriltag.h"
 #include "third_party/apriltag/tag36h11.h"
 #include <cstdio>

@@ -3,11 +3,12 @@ CompileFlags:
   CompilationDatabase: build
   Add:
     - -std=c++20
-    - -I${workspaceFolder}/frc971/orin
-    - -I${workspaceFolder}/third_party/apriltag
-    - -I${workspaceFolder}/third_party/apriltag/common
-    - -I/usr/local/cuda/include
+    - -I../src/main/rust/src/cpp
+    - -I../detection
+    - -I../detection/third_party/apriltag
+    - -I/usr/local/cuda/include/
     - -I/usr/include/opencv4
+    - -I../target/cxxbridge
     - -I/usr/lib/jvm/default-java/include
     - -I/usr/lib/jvm/default-java/include/linux
     - -I/usr/local/include
@@ -15,7 +16,6 @@ CompileFlags:
     - -I/home/ubuntu/Documents/allwpilib/wpiutil/src/main/native/include
     - -I/usr/lib/jvm/java-17-openjdk-arm64/include
     - -I/usr/lib/jvm/java-17-openjdk-arm64/include/linux
-    - -I${workspaceFolder}/target/cxxbridge
-
+    - -I../target/cxxbridge
 Index:
   Background: Build

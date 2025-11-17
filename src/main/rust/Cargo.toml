@@ -1,0 +1,12 @@
+[package]
+name = "cuda_tags"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cxx = "1.0.150"
+libc = "0.2.171"
+opencv = "0.97.2"
+
+[build-dependencies]
+cxx-build = "1.0.150"
