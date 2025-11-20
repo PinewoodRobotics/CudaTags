@@ -1,0 +1,18 @@
+services:
+  cuda-tags:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/opt
+    # Explicitly disable port forwarding
+    ports: []
+    # Keep container running for devcontainer
+    tty: true
+    stdin_open: true
+    # Environment variables for CUDA
+    environment:
+      - CUDA_HOME=/usr/local/cuda
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64
+    # Note: GPU access is available by default on Jetson devices with L4T base image
+    # For non-Jetson systems, you may need to configure GPU access differently

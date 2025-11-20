@@ -1,6 +1,6 @@
 #! /bin/bash
 
-cd ~/Documents/CudaTags
+cd /opt
 
 sudo apt-get update
 sudo apt-get upgrade

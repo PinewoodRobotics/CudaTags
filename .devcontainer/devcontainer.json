@@ -1,0 +1,58 @@
+{
+  "name": "CudaTags Development",
+  "dockerComposeFile": "../compose.yml",
+  "service": "cuda-tags",
+  "workspaceFolder": "/opt",
+
+  // Features to add to the dev container
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "twxs.cmake",
+        "ms-python.python",
+        "redhat.java",
+        "vscjava.vscode-java-pack"
+      ],
+      "settings": {
+        "C_Cpp.default.cppStandard": "c++20",
+        "C_Cpp.default.cStandard": "c11",
+        "C_Cpp.default.intelliSenseMode": "linux-gcc-aarch64",
+        "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+        "cmake.configureOnOpen": true,
+        "cmake.buildDirectory": "${workspaceFolder}/build",
+        "rust-analyzer.checkOnSave.enable": true,
+        "files.exclude": {
+          "**/target": true,
+          "**/build": false
+        }
+      }
+    }
+  },
+
+  "postCreateCommand": "bash -c 'if [ ! -f ~/.cargo/bin/rustup ]; then curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; fi && source ~/.cargo/env && rustup default stable'",
+
+  // Comment out to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+  "remoteUser": "root",
+
+  // Disable port forwarding
+  "forwardPorts": [],
+  "portsAttributes": {},
+
+  // Environment variables
+  "remoteEnv": {
+    "CUDA_HOME": "/usr/local/cuda",
+    "LD_LIBRARY_PATH": "/usr/local/cuda/lib64:${LD_LIBRARY_PATH}",
+    "PATH": "/usr/local/cuda/bin:${PATH}"
+  }
+}

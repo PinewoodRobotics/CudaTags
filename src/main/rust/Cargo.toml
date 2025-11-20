@@ -2,11 +2,23 @@
 name = "cuda_tags"
 version = "0.1.0"
 edition = "2024"
+authors = ["Denis Koterov <denis.koterov@gmail.com>"]
+description = "Rust wrapper for detecting AprilTags using GPU acceleration"
+repository = "https://github.com/godbrigero/CudaTags"
+homepage = "https://github.com/godbrigero/CudaTags"
+documentation = "https://docs.rs/cuda-tags"
+readme = "README.md"
 
 [dependencies]
 cxx = "1.0.150"
 libc = "0.2.171"
+
+[dev-dependencies]
 opencv = "0.97.2"
 
 [build-dependencies]
 cxx-build = "1.0.150"
+
+[[example]]
+name = "open_and_detect"
+path = "example/open_and_detect.rs"

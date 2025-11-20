@@ -1,6 +1,6 @@
 #! /bin/bash
 
-sudo apt install openjdk-17-jdk
+sudo apt update && sudo apt install -y openjdk-17-jdk
 
 echo 'export PATH=$PATH:/usr/local/cuda/bin' >> ~/.bashrc
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64' >> ~/.bashrc

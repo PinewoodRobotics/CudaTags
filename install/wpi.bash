@@ -1,16 +1,36 @@
 #! /bin/bash
 
-cd ~/Documents/
+set -e
 
-git clone https://github.com/wpilibsuite/allwpilib.git
+cd /opt
+
+if [ ! -d allwpilib ]; then
+  git clone https://github.com/wpilibsuite/allwpilib.git
+fi
+
 cd allwpilib
-sudo apt install openjdk-17-jdk
-sudo apt install ninja-build
-sudo apt install protobuf-compiler
-sudo apt install libxrandr-dev
-sudo apt install libssh-dev
-sudo apt install libopencv4.5-java
-cmake --preset default -DWITH_GUI=OFF -DWITH_JAVA=ON -DWITH_SIMULATION_MODULES=OFF -DWITH_TESTS=OFF -DOPENCV_JAR_FILE=/usr/share/java/opencv.jar
-cd build-cmake 
-cmake --build . --parallel 4  #may run out of memory compiling wpimath if too high
-sudo cmake --build . --target install
+
+apt-get update
+apt-get install -y \
+  openjdk-17-jdk \
+  ninja-build \
+  protobuf-compiler \
+  libxrandr-dev \
+  libssh-dev \
+  gcc-12 \
+  g++-12
+
+export CC=/usr/bin/gcc-12
+export CXX=/usr/bin/g++-12
+
+cmake -S . -B build-cmake \
+  -DWITH_GUI=OFF \
+  -DWITH_JAVA=OFF \
+  -DWITH_SIMULATION_MODULES=OFF \
+  -DWITH_TESTS=OFF \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc-12 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++-12 \
+  -DCMAKE_C_FLAGS="-Wno-error=restrict -Wno-restrict -Wno-psabi" \
+  -DCMAKE_CXX_FLAGS="-Wno-error=restrict -Wno-restrict -Wno-psabi" \
+
+cmake --build build-cmake --target install --parallel $(nproc)

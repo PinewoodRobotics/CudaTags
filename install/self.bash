@@ -1,17 +1,29 @@
 #! /bin/bash
 
-cd ~/Documents/CudaTags
+set -e
 
+# Work from the project root at /opt (this repository)
+cd /opt
 
 cd detection
 cd third_party/apriltag
-mkdir build
+
+# Build apriltag with CMake in a dedicated build directory
+mkdir -p build
 cd build
 cmake ..
 make
+
+# Go back to project root and build the rest of CudaTags
 cd ../../..
-mkdir build
+mkdir -p build
 cd build
 cmake ..
 make
-sudo cp lib971apriltag.so /usr/lib 
+
+cp lib971apriltag.so /usr/lib
+SYSTEM_ARCH=$(uname -m)
+
+cd ../../
+mkdir -p lib/linux/$SYSTEM_ARCH
+cp /usr/lib/lib971apriltag.so lib/linux/$SYSTEM_ARCH/lib971apriltag.so

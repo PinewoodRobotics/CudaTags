@@ -6,11 +6,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(CudaTagsJavaJNI)
 
+set(WITH_GUI OFF CACHE BOOL "" FORCE)
+set(WITH_JAVA OFF CACHE BOOL "" FORCE)
+set(WITH_SIMULATION_MODULES OFF CACHE BOOL "" FORCE)
+set(WITH_TESTS OFF CACHE BOOL "" FORCE)
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/allwpilib/CMakeLists.txt")
+  add_subdirectory(allwpilib)
+else()
+  message(FATAL_ERROR "allwpilib directory not found in ${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
+
 find_package(JNI REQUIRED)
 find_package(Java REQUIRED)
 include(UseJava)
 find_package(OpenCV REQUIRED)
-find_package(wpilib REQUIRED)
 
 add_subdirectory(detection)
 add_library(

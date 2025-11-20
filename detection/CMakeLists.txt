@@ -19,7 +19,6 @@ set(CMAKE_CUDA_FLAGS "--expt-relaxed-constexpr")
 
 project(971AprilTag LANGUAGES CXX CUDA )
 find_package(OpenCV REQUIRED)
-find_package(wpilib REQUIRED)
 
 add_compile_options(-Wno-psabi)
 
@@ -44,7 +43,7 @@ add_library(
 target_link_libraries(
   971apriltag PRIVATE
   ${JNI_LIBRARIES}
-  ${CMAKE_SOURCE_DIR}/detection/third_party/apriltag/build/libapriltag.a
+  ${CMAKE_SOURCE_DIR}/third_party/apriltag/build/libapriltag.a
   wpiutil
 )
 
