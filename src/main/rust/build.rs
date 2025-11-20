@@ -43,4 +43,5 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", search_path.display());
     println!("cargo:rustc-link-lib=971apriltag");
+    println!("cargo:rustc-link-lib=static=apriltag");
 }

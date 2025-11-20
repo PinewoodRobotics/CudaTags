@@ -14,6 +14,8 @@ cd build
 cmake ..
 make
 
+cp libapriltag.a /usr/lib
+
 # Go back to project root and build the rest of CudaTags
 cd ../../..
 mkdir -p build
@@ -26,4 +28,5 @@ SYSTEM_ARCH=$(uname -m)
 
 cd ../../
 mkdir -p lib/linux/$SYSTEM_ARCH
+cp /usr/lib/libapriltag.a lib/linux/$SYSTEM_ARCH/libapriltag.a
 cp /usr/lib/lib971apriltag.so lib/linux/$SYSTEM_ARCH/lib971apriltag.so

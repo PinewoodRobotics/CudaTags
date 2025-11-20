@@ -9,6 +9,10 @@ homepage = "https://github.com/godbrigero/CudaTags"
 documentation = "https://docs.rs/cuda-tags"
 readme = "README.md"
 
+[lib]
+name = "cuda_tags"
+path = "src/lib.rs"
+
 [dependencies]
 cxx = "1.0.150"
 libc = "0.2.171"
@@ -22,3 +26,7 @@ cxx-build = "1.0.150"
 [[example]]
 name = "open_and_detect"
 path = "example/open_and_detect.rs"
+
+[[example]]
+name = "base_create"
+path = "example/base_create.rs"

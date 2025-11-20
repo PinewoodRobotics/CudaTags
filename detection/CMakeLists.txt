@@ -17,7 +17,7 @@ set(CMAKE_CUDA_FLAGS "--expt-relaxed-constexpr")
 
 # set(CMAKE_BUILD_TYPE DEBUG)
 
-project(971AprilTag LANGUAGES CXX CUDA )
+project(971AprilTag LANGUAGES CXX CUDA)
 find_package(OpenCV REQUIRED)
 
 add_compile_options(-Wno-psabi)
