@@ -2,10 +2,10 @@
 
 #include <cub/util_type.cuh>
 
+#include "frc971/orin/cuda.h"
 #include <cuda/std/tuple>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
-#include "frc971/orin/cuda.h"
 
 namespace frc971::apriltag {
 
@@ -89,7 +89,7 @@ struct LineFitMoments {
   int64_t Mxx;
   int64_t Myy;
   int64_t Mxy;
-  int N;  // how many points are included in the set?
+  int N; // how many points are included in the set?
 };
 
 std::ostream &operator<<(std::ostream &os,
@@ -112,8 +112,8 @@ struct PeakExtents {
 
 struct PeakDecomposer {
   static constexpr size_t kBitsInKey = 16 + 32;
-  __host__ __device__ ::cuda::std::tuple<uint16_t &, float &> operator()(
-      Peak &key) const {
+  __host__ __device__ ::cuda::std::tuple<uint16_t &, float &>
+  operator()(Peak &key) const {
     return {key.blob_index, key.error};
   }
 };
@@ -158,6 +158,4 @@ __host__ __device__ std::tuple<uint, uint, uint, uint> Unrank(uint i);
 // The max number of work elements for a max maxes of 10.
 constexpr size_t MaxRankedIndex() { return 210; }
 
-}  // namespace frc971::apriltag
-
-
+} // namespace frc971::apriltag

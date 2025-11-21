@@ -22,13 +22,6 @@ find_package(OpenCV REQUIRED)
 
 add_compile_options(-Wno-psabi)
 
-include_directories(
-  .
-  /usr/local/cuda/include
-  ${JNI_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
-)
-
 add_library(
   971apriltag SHARED
   frc971/orin/971apriltag.cu
@@ -40,10 +33,17 @@ add_library(
   frc971/orin/cuda.cc
 )
 
+target_include_directories(
+  971apriltag PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  /usr/local/cuda/include
+  ${OpenCV_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/apriltag
+)
+
 target_link_libraries(
   971apriltag PRIVATE
-  ${JNI_LIBRARIES}
-  ${CMAKE_SOURCE_DIR}/third_party/apriltag/build/libapriltag.a
+  apriltag
   wpiutil
 )
 

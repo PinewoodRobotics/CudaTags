@@ -1,8 +1,8 @@
-## CudaTags – CUDA-Accelerated AprilTag Detection
+# CudaTags – CUDA-Accelerated AprilTag Detection
 
-Note: ai readme. 
+Note: ai readme.
 
-### What this repo is
+## What this repo is
 
 - **CUDA AprilTag engine**: GPU-accelerated AprilTag detector based on Team 971’s implementation (`frc971/orin/*.cu` + `third_party/apriltag`).
 - **Shared library**: Builds `lib971apriltag.so` via CMake.
@@ -36,14 +36,17 @@ Most of these are handled automatically if you use the `install` scripts below.
 The fastest “it actually works” path on a fresh Jetson with JetPack:
 
 1. **Clone the repo**
+
    - `cd ~/Documents`
    - `git clone <this-repo-url> CudaTags`
    - `cd CudaTags`
 
 2. **Run the installer (builds dependencies + CUDA library)**
+
    - `bash install/build.bash`
 
    This will:
+
    - Install Java 17 and basic dependencies.
    - Set CUDA / Java environment variables in `~/.bashrc`.
    - Clone and build WPILib.
@@ -53,10 +56,12 @@ The fastest “it actually works” path on a fresh Jetson with JetPack:
 3. **Open a new shell** so the environment from `~/.bashrc` is picked up.
 
 4. **Run the Rust camera demo**
+
    - `cd ~/Documents/CudaTags`
    - `cargo run --release`
 
    What you should see:
+
    - A window named `cam` from OpenCV.
    - Live camera frames from `/dev/video0`.
    - AprilTags outlined in red with their IDs drawn on the image.
@@ -72,6 +77,7 @@ If this works, you have a fully functioning CUDA + AprilTag + OpenCV stack.
 If you want to build the GPU library separately (without using `install/build.bash`):
 
 1. **Build the upstream AprilTag library**
+
    - `cd ~/Documents/CudaTags/third_party/apriltag`
    - `mkdir -p build`
    - `cd build`
@@ -79,6 +85,7 @@ If you want to build the GPU library separately (without using `install/build.ba
    - `make`
 
 2. **Build CudaTags via CMake**
+
    - `cd ~/Documents/CudaTags`
    - `mkdir -p build`
    - `cd build`
@@ -91,8 +98,42 @@ If you want to build the GPU library separately (without using `install/build.ba
    - `sudo cp lib971apriltag.so /usr/lib`
 
 Once `lib971apriltag.so` is installed into `/usr/lib`, you can:
+
 - Use the **Rust demo** (`cargo run --release`).
 - Use the **Java/JNI integration** as described below.
+
+---
+
+## Python bindings
+
+The `pybind11` module lives under `src/main/python/cpp` and is packaged as `cuda_tags`.
+
+1. Create / activate a Python environment:
+
+   ```bash
+   cd ~/Documents/CudaTags
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+2. Build and install the package (this runs CMake through `scikit-build` and drops the extension into your environment):
+
+   ```bash
+   pip install -v .
+   ```
+
+   The module now ships with the CUDA detector and does **not** require manual copying of `.so` files.
+
+3. (Optional) Generate Python stubs:
+
+   ```bash
+   pip install pybind11-stubgen
+   pybind11-stubgen cuda_tags --output-dir "$(python -c 'import sysconfig; print(sysconfig.get_path(\"purelib\"))')"
+   ```
+
+You can automate these steps via `install/python_build.bash`, which prepares the virtualenv, installs dependencies, builds the wheel, and refreshes the generated stubs.
+
+> Prefer a manual CMake build? Configure with `-DCUDATAGS_BUILD_PYTHON=ON` to emit the `cuda_tags` module next to the other targets.
 
 ---
 
@@ -101,6 +142,7 @@ Once `lib971apriltag.so` is installed into `/usr/lib`, you can:
 The Rust crate in this repo (`Cargo.toml`, `src/lib.rs`, `src/bridge.rs`, `src/main.rs`) wraps the CUDA detector via `cxx` and runs a simple camera demo.
 
 - **Entry point**: `src/main.rs`
+
   - Opens camera index `0` with OpenCV (MJPG at 640×480 @ 30 FPS).
   - Calls `make_cuda_tag_detector` from the C++ layer to create a GPU detector.
   - Sends frames into the GPU, retrieves `DetectionResult` values, and draws:
@@ -182,4 +224,3 @@ The exact wiring depends on your PhotonVision / robot codebase, but this library
 
 This repository includes the upstream AprilTag library under its own license (`third_party/apriltag/LICENSE.md`).  
 See `LICENSE.txt` in this repository for the overall project licensing details.
-

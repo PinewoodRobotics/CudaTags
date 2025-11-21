@@ -1,0 +1,20 @@
+include CMakeLists.txt
+include LICENSE.txt
+include README.md
+include pyproject.toml
+include setup.py
+
+# Source code
+graft detection
+graft src/main/python
+graft allwpilib
+
+# Exclude build artifacts and other languages if not needed
+exclude Dockerfile
+exclude compose.yml
+exclude .devcontainer/*
+exclude .vscode/*
+exclude target/*
+exclude build/*
+exclude install/*
+global-exclude *.py[cod] __pycache__ *.so *.dylib

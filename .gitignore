@@ -8,3 +8,5 @@ build
 *.log
 .venv/
 allwpilib/
+_skbuild/
+src/main/python/cuda_tags.egg-info/
