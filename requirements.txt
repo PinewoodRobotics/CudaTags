@@ -2,4 +2,4 @@ pybind11
 pybind11-stubgen
 numpy
 opencv-python
-skbuild
+scikit-build
