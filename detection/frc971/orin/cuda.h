@@ -34,10 +34,23 @@
 // CHECKs that a cuda method returned success.
 // TODO(austin): This will not handle if and else statements quite right, fix if
 // we care.
+namespace frc971::apriltag {
+// Helper struct that allows << chaining but ignores the message.
+// Errors are ignored to reduce console spam.
+struct CudaCheckIgnorer {
+  template <typename T> CudaCheckIgnorer &operator<<(const T &) {
+    return *this;
+  }
+};
+} // namespace frc971::apriltag
+
 #define CHECK_CUDA(condition)                                                  \
-  if (auto c = condition)                                                      \
-    ; // Error ignored: LOG(FATAL) << "Check failed: " #condition " (" <<
-      // cudaGetErrorString(c) << ") " removed to reduce console spam
+  ([](auto c) {                                                                \
+    (void)c; /* Error ignored: LOG(FATAL) << "Check failed: " #condition " ("  \
+                << cudaGetErrorString(c) << ") " removed to reduce console     \
+                spam */                                                        \
+    return ::frc971::apriltag::CudaCheckIgnorer{};                             \
+  }(condition))
 
 namespace frc971::apriltag {
 
