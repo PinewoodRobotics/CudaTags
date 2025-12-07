@@ -20,8 +20,6 @@ set(CMAKE_CUDA_FLAGS "--expt-relaxed-constexpr")
 project(971AprilTag LANGUAGES CXX CUDA)
 find_package(OpenCV REQUIRED)
 
-add_subdirectory(third_party/apriltag)
-
 add_compile_options(-Wno-psabi)
 
 add_library(
@@ -35,12 +33,16 @@ add_library(
   frc971/orin/cuda.cc
 )
 
+# Add include directories for apriltag headers from allwpilib
+# Note: allwpilib's apriltag provides headers at thirdparty/apriltag/include/
+# The apriltag target from allwpilib will provide its include directories via target_link_libraries
 target_include_directories(
   971apriltag PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   /usr/local/cuda/include
   ${OpenCV_INCLUDE_DIRS}
-  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/apriltag
+  # Add path so third_party/apriltag resolves to thirdparty/apriltag/include
+  ${CMAKE_SOURCE_DIR}/detection/third_party/allwpilib/apriltag/src/main/native/thirdparty
 )
 
 target_link_libraries(
