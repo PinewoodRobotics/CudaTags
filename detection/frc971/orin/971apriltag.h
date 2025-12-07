@@ -1,19 +1,19 @@
 #pragma once
 
-#include "third_party/apriltag/apriltag.h"
+#include "apriltag/apriltag.h"
 
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
 #include "frc971/orin/cuda.h"
 #include "frc971/orin/gpu_image.h"
 #include "frc971/orin/line_fit_filter.h"
 #include "frc971/orin/points.h"
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 
 namespace frc971::apriltag {
 
 // Class to find the blob index of a point in a point vector.
 class BlobExtentsIndexFinder {
- public:
+public:
   BlobExtentsIndexFinder(const MinMaxExtents *extents_device,
                          size_t num_extents)
       : extents_device_(extents_device), num_extents_(num_extents) {}
@@ -43,7 +43,7 @@ class BlobExtentsIndexFinder {
     return extents_device_[index];
   }
 
- private:
+private:
   const MinMaxExtents *extents_device_;
   size_t num_extents_;
 
@@ -73,7 +73,7 @@ struct DistCoeffs {
 
 // GPU based april tag detector.
 class GpuDetector {
- public:
+public:
   // The number of blobs we will consider when counting april tags.
   static constexpr size_t kMaxBlobs = IndexPoint::kMaxBlobs;
 
@@ -83,7 +83,7 @@ class GpuDetector {
               CameraMatrix camera_matrix, DistCoeffs distortion_coefficients);
   GpuDetector(size_t width, size_t height, apriltag_detector_t *tag_detector,
               CameraMatrix camera_matrix, DistCoeffs distortion_coefficients,
-	      size_t decimate);
+              size_t decimate);
   virtual ~GpuDetector();
 
   // Detects april tags in the provided image.
@@ -140,10 +140,10 @@ class GpuDetector {
     return extents_device_.Copy(NumQuads());
   }
 
-  //std::vector<cub::KeyValuePair<long, MinMaxExtents>> CopySelectedExtents()
-  //    const {
-  //  return selected_extents_device_.Copy(NumQuads());
-  //}
+  // std::vector<cub::KeyValuePair<long, MinMaxExtents>> CopySelectedExtents()
+  //     const {
+  //   return selected_extents_device_.Copy(NumQuads());
+  // }
 
   int NumSelectedPairs() const { return num_selected_blobs_device_.Copy()[0]; }
 
@@ -203,7 +203,7 @@ class GpuDetector {
   size_t width() const { return width_; }
   size_t height() const { return height_; }
 
- private:
+private:
   void UpdateFitQuads();
 
   void AdjustPixelCenters();
@@ -213,8 +213,7 @@ class GpuDetector {
   static void QuadDecodeTask(void *_u);
 
   // Creates a GPU image wrapped around the provided memory.
-  template <typename T>
-  GpuImage<T> ToGpuImage(GpuMemory<T> &memory) {
+  template <typename T> GpuImage<T> ToGpuImage(GpuMemory<T> &memory) {
     if (memory.size() == width_ * height_) {
       return GpuImage<T>{
           .data = memory.get(),
@@ -273,7 +272,7 @@ class GpuDetector {
   CudaEvent after_quad_fit_memcpy_;
 
   // TODO(austin): Remove this...
-  //HostMemory<uint8_t> color_image_host_;
+  // HostMemory<uint8_t> color_image_host_;
   HostMemory<uint8_t> gray_image_host_;
 
   // Starting color image.
@@ -368,6 +367,4 @@ class GpuDetector {
   std::chrono::steady_clock::time_point start_time;
 };
 
-}  // namespace frc971::apriltag
-
-
+} // namespace frc971::apriltag

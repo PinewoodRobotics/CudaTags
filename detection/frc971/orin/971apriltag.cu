@@ -11,7 +11,7 @@
 #include <cub/iterator/transform_input_iterator.cuh>
 #include <vector>
 
-#include "third_party/apriltag/common/g2d.h"
+#include "apriltag/common/g2d.h"
 
 #include "frc971/orin/labeling_allegretti_2019_BKE.h"
 #include "frc971/orin/threshold.h"
