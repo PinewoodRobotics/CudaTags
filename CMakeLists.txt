@@ -26,12 +26,6 @@ if(SKBUILD)
 endif()
 option(CUDATAGS_BUILD_PYTHON "Build the Python bindings" ${_default_build_python})
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/detection/third_party/allwpilib/CMakeLists.txt")
-  add_subdirectory(detection/third_party/allwpilib)
-else()
-  message(FATAL_ERROR "allwpilib directory not found in ${CMAKE_CURRENT_SOURCE_DIR}/detection/third_party")
-endif()
-
 find_package(OpenCV REQUIRED)
 
 add_subdirectory(detection)
@@ -58,7 +52,7 @@ if(CUDATAGS_BUILD_JAVA)
   target_link_libraries(
     CudaTagsJavaJNI PRIVATE
     971apriltag
-    apriltag
+    apriltag::apriltag
     ${JNI_LIBRARIES}
     ${OpenCV_LIBS}
     wpiutil
@@ -83,7 +77,7 @@ if(CUDATAGS_BUILD_PYTHON)
   target_link_libraries(
     cuda_tags PRIVATE
     971apriltag
-    apriltag
+    apriltag::apriltag
     ${OpenCV_LIBS}
     wpiutil
   )
