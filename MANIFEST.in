@@ -4,17 +4,26 @@ include README.md
 include pyproject.toml
 include setup.py
 
-# Source code
+# Source code needed for Python build
 graft detection
 graft src/main/python
-graft detection/third_party/allwpilib
 
-# Exclude build artifacts and other languages if not needed
+# Exclude build artifacts
+prune detection/build
+prune build
+prune target
+prune install
+prune src/main/python/cuda_tags.egg-info
+
+# Exclude other languages (not needed for Python build)
+prune src/main/java
+prune src/main/rust
+
+# Exclude other unnecessary files
 exclude Dockerfile
 exclude compose.yml
 exclude .devcontainer/*
 exclude .vscode/*
-exclude target/*
-exclude build/*
-exclude install/*
-global-exclude *.py[cod] __pycache__ *.so *.dylib
+
+# Exclude compiled Python files and shared libraries (build artifacts)
+global-exclude *.py[cod] __pycache__ *.so *.dylib *.a

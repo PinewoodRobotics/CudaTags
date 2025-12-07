@@ -99,7 +99,22 @@ if(CUDATAGS_BUILD_PYTHON)
           RUNTIME DESTINATION .
           ARCHIVE DESTINATION .)
 
+  set_target_properties(971apriltag PROPERTIES
+    BUILD_RPATH "${_cudatags_rpath}"
+    INSTALL_RPATH "${_cudatags_rpath}"
+  )
+
+  set_target_properties(apriltag PROPERTIES
+    BUILD_RPATH "${_cudatags_rpath}"
+    INSTALL_RPATH "${_cudatags_rpath}"
+  )
+
   install(TARGETS 971apriltag
+          LIBRARY DESTINATION .
+          RUNTIME DESTINATION .
+          ARCHIVE DESTINATION .)
+
+  install(TARGETS apriltag
           LIBRARY DESTINATION .
           RUNTIME DESTINATION .
           ARCHIVE DESTINATION .)
