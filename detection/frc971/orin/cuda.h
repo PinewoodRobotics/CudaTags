@@ -36,8 +36,8 @@
 // we care.
 #define CHECK_CUDA(condition)                                                  \
   if (auto c = condition)                                                      \
-  //LOG(FATAL) << "Check failed: " #condition " (" << cudaGetErrorString(c) \
-  //           << ") " // this seems to spam the console too much remove
+    ; // Error ignored: LOG(FATAL) << "Check failed: " #condition " (" <<
+      // cudaGetErrorString(c) << ") " removed to reduce console spam
 
 namespace frc971::apriltag {
 

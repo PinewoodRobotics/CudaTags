@@ -15,5 +15,7 @@ setup(
     cmake_args=[
         "-DCUDATAGS_BUILD_JAVA=OFF",
         "-DCUDATAGS_BUILD_PYTHON=ON",
+        "-DCMAKE_CXX_FLAGS=-w",
+        "-DCMAKE_CUDA_FLAGS=-w",
     ],
 )
