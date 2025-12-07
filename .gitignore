@@ -1,4 +1,4 @@
-third_party/apriltag/build
+detection/third_party/apriltag/build
 build
 
 
@@ -7,6 +7,5 @@ build
 /target
 *.log
 .venv/
-allwpilib/
 _skbuild/
 src/main/python/cuda_tags.egg-info/

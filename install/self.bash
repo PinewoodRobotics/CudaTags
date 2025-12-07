@@ -5,7 +5,7 @@ set -e
 # Work from the project root at /opt (this repository)
 cd /opt
 
-cd third_party/apriltag
+cd detection/third_party/apriltag
 
 # Build apriltag with CMake in a dedicated build directory
 mkdir -p build

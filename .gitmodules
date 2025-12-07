@@ -1,7 +1,6 @@
-[submodule "third_party/apriltag"]
-	path = third_party/apriltag
+[submodule "detection/third_party/apriltag"]
+	path = detection/third_party/apriltag
 	url = https://github.com/AprilRobotics/apriltag.git
-[submodule "third_party/allwpilib"]
-	path = third_party/allwpilib
+[submodule "detection/third_party/allwpilib"]
+	path = detection/third_party/allwpilib
 	url = https://github.com/wpilibsuite/allwpilib.git
-

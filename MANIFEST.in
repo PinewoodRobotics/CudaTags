@@ -7,7 +7,7 @@ include setup.py
 # Source code
 graft detection
 graft src/main/python
-graft third_party/allwpilib
+graft detection/third_party/allwpilib
 
 # Exclude build artifacts and other languages if not needed
 exclude Dockerfile
