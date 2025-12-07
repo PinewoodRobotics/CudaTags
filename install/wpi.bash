@@ -4,11 +4,12 @@ set -e
 
 cd /opt
 
-if [ ! -d allwpilib ]; then
-  git clone https://github.com/wpilibsuite/allwpilib.git
+if [ ! -d third_party/allwpilib ]; then
+  mkdir -p third_party
+  git clone https://github.com/wpilibsuite/allwpilib.git third_party/allwpilib
 fi
 
-cd allwpilib
+cd third_party/allwpilib
 
 apt-get update
 apt-get install -y \

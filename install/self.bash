@@ -5,7 +5,6 @@ set -e
 # Work from the project root at /opt (this repository)
 cd /opt
 
-cd detection
 cd third_party/apriltag
 
 # Build apriltag with CMake in a dedicated build directory
@@ -26,7 +25,7 @@ make
 cp lib971apriltag.so /usr/local/lib
 SYSTEM_ARCH=$(uname -m)
 
-cd ../../
+cd ..
 mkdir -p lib/linux/$SYSTEM_ARCH
 cp /usr/local/lib/libapriltag.a lib/linux/$SYSTEM_ARCH/libapriltag.a
 cp /usr/local/lib/lib971apriltag.so lib/linux/$SYSTEM_ARCH/lib971apriltag.so

@@ -26,10 +26,10 @@ if(SKBUILD)
 endif()
 option(CUDATAGS_BUILD_PYTHON "Build the Python bindings" ${_default_build_python})
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/allwpilib/CMakeLists.txt")
-  add_subdirectory(allwpilib)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/allwpilib/CMakeLists.txt")
+  add_subdirectory(third_party/allwpilib)
 else()
-  message(FATAL_ERROR "allwpilib directory not found in ${CMAKE_CURRENT_SOURCE_DIR}")
+  message(FATAL_ERROR "allwpilib directory not found in ${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 endif()
 
 find_package(OpenCV REQUIRED)
@@ -50,6 +50,7 @@ if(CUDATAGS_BUILD_JAVA)
     CudaTagsJavaJNI PRIVATE
     ${JNI_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/detection
     /usr/local/cuda/include
   )
@@ -74,6 +75,7 @@ if(CUDATAGS_BUILD_PYTHON)
   target_include_directories(
     cuda_tags PRIVATE
     ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/detection
     /usr/local/cuda/include
   )
