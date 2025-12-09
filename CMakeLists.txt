@@ -14,7 +14,7 @@ set(WITH_JAVA OFF CACHE BOOL "" FORCE)
 set(WITH_SIMULATION_MODULES OFF CACHE BOOL "" FORCE)
 set(WITH_TESTS OFF CACHE BOOL "" FORCE)
 
-set(_default_build_java ON)
+set(_default_build_java OFF)
 if(SKBUILD)
   set(_default_build_java OFF)
 endif()
@@ -46,6 +46,7 @@ if(CUDATAGS_BUILD_JAVA)
     ${OpenCV_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/detection
+    ${CMAKE_SOURCE_DIR}/detection/third_party
     /usr/local/cuda/include
   )
 
@@ -71,6 +72,7 @@ if(CUDATAGS_BUILD_PYTHON)
     ${OpenCV_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/detection
+    ${CMAKE_SOURCE_DIR}/detection/third_party
     /usr/local/cuda/include
   )
 

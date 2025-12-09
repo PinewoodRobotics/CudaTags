@@ -55,6 +55,7 @@ target_include_directories(
   /usr/local/cuda/include
   ${OpenCV_INCLUDE_DIRS}
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/apriltag
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/
 )
 
 target_link_libraries(
