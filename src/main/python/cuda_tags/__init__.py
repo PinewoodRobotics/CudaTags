@@ -1,8 +1,8 @@
 """Typed AprilTag API. Native symbols load only when requested."""
 from importlib import import_module
 
-__all__ = ["CameraMatrix", "DistCoeffs", "TagType", "DetectionResult",
-           "CudaTagsWrapper", "tag36h11"]
+__all__ = ["CameraMatrix", "DistCoeffs", "TagType", "Pose", "DetectionResult",
+           "CudaTagsWrapper", "tag36h11", "to_gray", "cuda_available"]
 
 def __getattr__(name: str):
     if name not in __all__:

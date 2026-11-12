@@ -3,15 +3,25 @@ import numpy as np
 import cv2
 import time
 
-camera_matrix = cuda_tags.CameraMatrix(1000, 1000, 1000, 1000)
-dist_coeffs = cuda_tags.DistCoeffs(0, 0, 0, 0, 0)
-tags_wrapper = cuda_tags.CudaTagsWrapper(
-    cuda_tags.TagType.tag36h11, camera_matrix, dist_coeffs, 1, 640, 480
-)
-
+# Replace with your camera's calibration (OpenCV intrinsics in pixels and
+# k1, k2, p1, p2, k3) at the capture resolution. These are rough values for a
+# ~70 degree horizontal field of view at 640x480 with no distortion.
+FX = FY = 457.0
 camera_feed = cv2.VideoCapture(0)
 camera_feed.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 camera_feed.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+ok, first = camera_feed.read()
+if not ok:
+    raise SystemExit("cannot read from camera 0")
+# The detector is built for one frame size; use the size the camera delivers.
+height, width = first.shape[:2]
+
+camera_matrix = cuda_tags.CameraMatrix(FX, width / 2, FY, height / 2)  # fx, cx, fy, cy
+dist_coeffs = cuda_tags.DistCoeffs(0, 0, 0, 0, 0)
+tags_wrapper = cuda_tags.CudaTagsWrapper(
+    cuda_tags.TagType.tag36h11, camera_matrix, dist_coeffs, 2, width, height,
+    tag_size_m=0.1651,  # FRC tags; enables detection.pose
+)
 
 prev_time = time.time()
 fps = 0.0

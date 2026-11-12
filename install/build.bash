@@ -1,10 +1,6 @@
-#! /bin/bash
-
-cd /opt
-
-sudo apt-get update
-sudo apt-get upgrade
-
-bash install/pre.bash
-bash install/wpi.bash
-bash install/self.bash
+#!/usr/bin/env bash
+# Fresh Jetson setup: dependencies, then build, test and install CudaTags.
+set -euo pipefail
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+bash "$HERE/deps.bash"
+bash "$HERE/self.bash"

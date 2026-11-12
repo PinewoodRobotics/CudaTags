@@ -1,0 +1,54 @@
+# CPU-side checks that run on hosted runners (no GPU). GPU tests run on a
+# Jetson with scripts/test-jetson.sh.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust-stub:
+    name: Rust stub (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      # With the feature but no CUDA toolkit, the crate must still build
+      # (as a stub) so dependent workspaces build everywhere.
+      - run: cargo test --features cuda
+
+  cpu:
+    name: C++ core, golden image (CPU), Python and Java without CUDA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 detection/third_party/apriltag
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libopencv-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: python -m pip install numpy 'pybind11>=2.12,<3'
+      - name: Configure (no CUDA)
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCUDATAGS_WITH_CUDA=OFF -DCUDATAGS_BUILD_PYTHON=ON -DCUDATAGS_BUILD_JAVA=ON
+          -Dpybind11_DIR="$(python -m pybind11 --cmakedir)"
+          -DPYTHON_EXECUTABLE="$(which python)"
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+      - name: Python tests
+        run: CUDA_TAGS_EXTENSION="$(ls build/cuda_tags*.so)" python -m unittest discover -s tests -v

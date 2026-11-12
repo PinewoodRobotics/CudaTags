@@ -1,37 +1,34 @@
 [package]
 name = "cuda_tags"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-rust-version = "1.88"
-authors = ["Denis Koterov <denis.koterov@gmail.com>"]
-description = "Rust wrapper for detecting AprilTags using GPU acceleration"
-repository = "https://github.com/godbrigero/CudaTags"
-homepage = "https://github.com/godbrigero/CudaTags"
-documentation = "https://docs.rs/cuda-tags"
-readme = "README.md"
+rust-version = "1.85"
+authors = ["Pinewood Robotics (FRC 4765)"]
+description = "Safe Rust API for CudaTags, Team 971's GPU tag36h11 AprilTag detector"
+license = "Apache-2.0"
+repository = "https://github.com/PinewoodRobotics/CudaTags"
+readme = "../../../README.md"
+# build.rs compiles the C++/CUDA sources from the repository root
+# (../../..), so the crate is used by path or git, not from crates.io.
+publish = false
+links = "cuda_tags"
 
 [lib]
 name = "cuda_tags"
 path = "src/lib.rs"
 
-[dependencies]
-cxx = "=1.0.205"
-opencv = { version = "0.97.2", optional = true, default-features = false, features = ["highgui", "imgproc", "videoio"] }
-
 [features]
 default = []
-native = []
-camera-example = ["native", "dep:opencv"]
+# Build the GPU detector with CMake, nvcc and OpenCV. Without this feature,
+# or when the target is not Linux or no CUDA toolkit is found, the crate
+# builds a stub whose Detector::new returns Error::Unavailable, so dependent
+# workspaces build and test anywhere. Set CUDA_TAGS_REQUIRE_CUDA=1 to make a
+# missing toolkit a build error instead.
+cuda = []
 
 [build-dependencies]
-cxx-build = "=1.0.205"
+pkg-config = "0.3"
 
 [[example]]
-name = "open_and_detect"
-required-features = ["camera-example"]
-path = "example/open_and_detect.rs"
-
-[[example]]
-name = "base_create"
-required-features = ["native"]
-path = "example/base_create.rs"
+name = "detect_pgm"
+path = "examples/detect_pgm.rs"

@@ -1,275 +1,229 @@
-# CudaTags – CUDA-Accelerated AprilTag Detection
-
-Note: ai readme.
-
-## What this repo is
-
-- **CUDA AprilTag engine**: GPU-accelerated AprilTag detector based on Team 971’s implementation (`frc971/orin/*.cu` + `third_party/apriltag`).
-- **Shared library**: Builds `lib971apriltag.so` via CMake.
-- **Bindings**:
-  - **Java/JNI** for PhotonVision / WPILib (`GpuDetectorJNI.cc`).
-  - **Rust** wrapper using `cxx` (`src/bridge.rs`, `src/cpp/cuda_tags_wrapper.*`, `src/main.rs` demo).
-
-If you just want to **see tags being detected**, the Rust demo is the simplest way to test once the CUDA library is built.
-
----
-
-## Requirements
-
-- **GPU platform**
-  - Tested on NVIDIA Jetson (e.g., Orin) with **JetPack 6.2**.
-  - CUDA toolkit installed at `/usr/local/cuda`.
-- **System packages (typical Jetson setup)**
-  - `build-essential cmake ninja-build`
-  - `openjdk-17-jdk`
-  - `libopencv-dev` (and/or `libopencv4.5-java` if using Java)
-  - `protobuf-compiler libxrandr-dev libssh-dev`
-- **Rust toolchain (for the demo / crate)**
-  - `rustup` with a recent stable toolchain (edition 2024 is used).
-
-Most of these are handled automatically if you use the `install` scripts below.
-
----
-
-## Quick start: build everything and run a live demo
-
-The fastest “it actually works” path on a fresh Jetson with JetPack:
-
-1. **Clone the repo**
-
-   - `cd ~/Documents`
-   - `git clone <this-repo-url> CudaTags`
-   - `cd CudaTags`
-
-2. **Run the installer (builds dependencies + CUDA library)**
-
-   - `bash install/build.bash`
-
-   This will:
-
-   - Install Java 17 and basic dependencies.
-   - Set CUDA / Java environment variables in `~/.bashrc`.
-   - Clone and build WPILib.
-   - Build `third_party/apriltag` and this project.
-   - Install `lib971apriltag.so` to `/usr/lib`.
-
-3. **Open a new shell** so the environment from `~/.bashrc` is picked up.
-
-4. **Run the Rust camera demo**
-
-   - `cd ~/Documents/CudaTags`
-   - `cargo run --release`
-
-   What you should see:
-
-   - A window named `cam` from OpenCV.
-   - Live camera frames from `/dev/video0`.
-   - AprilTags outlined in red with their IDs drawn on the image.
-   - FPS and timing stats printed to stderr in the form:
-     - `[CudaTags-Rust] frame 640x480 channels=3 stride=... detections=N time_ms=...`
-
-If this works, you have a fully functioning CUDA + AprilTag + OpenCV stack.
-
----
-
-## Building the CUDA AprilTag library only
-
-If you want to build the GPU library separately (without using `install/build.bash`):
-
-1. **Build the upstream AprilTag library**
-
-   - `cd ~/Documents/CudaTags/third_party/apriltag`
-   - `mkdir -p build`
-   - `cd build`
-   - `cmake ..`
-   - `make`
-
-2. **Build CudaTags via CMake**
-
-   - `cd ~/Documents/CudaTags`
-   - `mkdir -p build`
-   - `cd build`
-   - `cmake ..`
-   - `make`
-
-   This produces `build/lib971apriltag.so`.
-
-3. **Install the shared library (so Rust/Java can link it)**
-   - `sudo cp lib971apriltag.so /usr/lib`
-
-Once `lib971apriltag.so` is installed into `/usr/lib`, you can:
-
-- Use the **Rust demo** (`cargo run --release`).
-- Use the **Java/JNI integration** as described below.
-
----
-
-## Python bindings
-
-The `pybind11` module lives under `src/main/python/cpp` and is packaged as `cuda_tags`.
-
-1. Create / activate a Python environment:
-
-   ```bash
-   cd ~/Documents/CudaTags
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-2. Build and install the package (this runs CMake through `scikit-build` and drops the extension into your environment):
-
-   ```bash
-   pip install -v .
-   ```
-
-   The module now ships with the CUDA detector and does **not** require manual copying of `.so` files.
-
-3. (Optional) Generate Python stubs:
-
-   ```bash
-   pip install pybind11-stubgen
-   pybind11-stubgen cuda_tags --output-dir "$(python -c 'import sysconfig; print(sysconfig.get_path(\"purelib\"))')"
-   ```
-
-You can automate these steps via `install/python_build.bash`, which prepares the virtualenv, installs dependencies, builds the wheel, and refreshes the generated stubs.
-
-> Prefer a manual CMake build? Configure with `-DCUDATAGS_BUILD_PYTHON=ON` to emit the `cuda_tags` module next to the other targets.
-
----
-
-## Rust crate: how to use it and what the demo does
-
-The Rust crate in this repo (`Cargo.toml`, `src/lib.rs`, `src/bridge.rs`, `src/main.rs`) wraps the CUDA detector via `cxx` and runs a simple camera demo.
-
-- **Entry point**: `src/main.rs`
-
-  - Opens camera index `0` with OpenCV (MJPG at 640×480 @ 30 FPS).
-  - Calls `make_cuda_tag_detector` from the C++ layer to create a GPU detector.
-  - Sends frames into the GPU, retrieves `DetectionResult` values, and draws:
-    - Tag outline (quadrilateral).
-    - Tag center.
-    - Tag ID text near the center.
-  - Overlays **FPS**, **processing time (ms)**, and **detections count** on the frame.
-  - Press `Esc` to exit the window.
-
-- **Bridge types**: `src/bridge.rs`
-  - Defines `CameraMatrix`, `DistCoeffs`, `RustImage`, `TagType`, and `DetectionResult`.
-  - Exposes `make_cuda_tag_detector` and `CudaTagsWrapper::process` from C++.
-
-### Running on a different camera or resolution
-
-- To use a different camera index, change the line in `src/main.rs`:
-  - `let mut cam = videoio::VideoCapture::new(0, videoio::CAP_V4L2)?;`
-- To change resolution or FPS, adjust:
-  - `CAP_PROP_FRAME_WIDTH`, `CAP_PROP_FRAME_HEIGHT`, `CAP_PROP_FPS`.
-- Make sure the width/height passed to `make_cuda_tag_detector` match the actual camera resolution.
-
----
-
-## Java / PhotonVision usage (JNI layer)
-
-For Java/WPILib/PhotonVision integration, the key file is `GpuDetectorJNI.cc`. It:
-
-- Wraps the CUDA-based `frc971::apriltag::GpuDetector`.
-- Exposes JNI methods for creating/destroying detectors and processing `cv::Mat` images.
-- Produces an array of `edu.wpi.first.apriltag.AprilTagDetection` objects with ID, Hamming distance, decision margin, homography, corners, and center.
-
-To use it:
-
-1. **Ensure `lib971apriltag.so` is built and installed** (see sections above).
-2. **Make sure your Java classpath and `java.library.path` can find everything**.
-   - Example (from `test.sh`):
-     - `java -cp GpuDetectorJNI.jar -Djava.library.path=. org.photonvision.jni.GpuDetectorJNI`
-3. **From Java**, you typically:
-   - Capture frames into an OpenCV `Mat`.
-   - Pass the image data to the JNI layer.
-   - Use the returned detections for localization or targeting.
-
-The exact wiring depends on your PhotonVision / robot codebase, but this library is designed to drop into that ecosystem with minimal changes.
-
----
-
-## Notes / troubleshooting
-
-- **CUDA / OpenCV include paths**
-  - `CMakeLists.txt` and `build.rs` assume CUDA headers at `/usr/local/cuda/include` and OpenCV at `/usr/include/opencv4`.
-  - Adjust those paths if your distro uses different locations.
-- **LLVM / Clang for Rust `cxx` builds**
-  - On some systems you may need:
-    - `export LLVM_CONFIG_PATH=/usr/bin/llvm-config-14`
-  - This is hinted at in `test.sh`.
-- **Architecture-specific libraries**
-  - `build.rs` looks for `lib/linux/<arch>` when giving Rust a link search path, but installing `lib971apriltag.so` to `/usr/lib` is usually enough.
-
----
-
-## Project layout
-
-- **CUDA + AprilTag core**
-  - `frc971/orin/` – GPU implementation and helpers (thresholding, labeling, line fitting, etc.).
-  - `third_party/apriltag/` – Upstream AprilTag library.
-- **Bindings**
-  - `GpuDetectorJNI.cc` – Java/WPILib JNI bindings.
-  - `src/cpp/cuda_tags_wrapper.*` – C++ bridge for the Rust `cxx` layer.
-  - `src/bridge.rs` – Rust side of the `cxx` bridge.
-- **Rust crate**
-  - `Cargo.toml`, `src/lib.rs`, `src/main.rs`.
-- **Build / install**
-  - `CMakeLists.txt` – CMake config for `lib971apriltag.so`.
-  - `install/*.bash` – Helper scripts to set up dependencies and build everything.
-
----
+# CudaTags
+
+GPU AprilTag (tag36h11) detection for NVIDIA Jetson, built on
+[Team 971's CUDA detector](https://github.com/frc971/971-Robot-Code) and the
+upstream [AprilTag](https://github.com/AprilRobotics/apriltag) library, with
+an optional per-tag 6-DoF pose (OpenCV `SOLVEPNP_IPPE_SQUARE`).
+
+One C++ core is shared by every interface:
+
+| Interface | Where | Use it from |
+| --- | --- | --- |
+| C++ core | `src/main/cpp/include/cuda_tags/detector.hpp` | C++ (link `cuda_tags_core`) |
+| C ABI | `src/main/cpp/include/cuda_tags/cuda_tags.h`, `libcuda_tags.so` | any FFI, `dlopen` |
+| Rust crate `cuda_tags` | `src/main/rust` | Cargo path/git dependency |
+| Python module `cuda_tags` | `src/main/python` | `pip install .` |
+| Java `frc4765.cuda.tags.CudaTags` | `src/main/java` | JNI (`libcuda_tags_jni.so`) |
+
+## Supported platforms
+
+- **GPU detection:** NVIDIA Jetson Orin on JetPack 6 (Ubuntu 22.04, CUDA 12.2
+  or newer), GPU architecture `sm_87`. Other CUDA GPUs work by setting
+  `CMAKE_CUDA_ARCHITECTURES` (for example `native`).
+- **Everywhere else** (macOS, x86 Linux without CUDA): everything builds and
+  the CPU tests run, but creating a detector fails with a clear "built without
+  CUDA" error. This lets projects that depend on CudaTags build and test on
+  developer machines.
+
+Requirements: CMake 3.22+, a C++20 compiler, OpenCV 4 (core, imgproc,
+calib3d; `libopencv-dev`), and the CUDA toolkit for GPU builds. Only the
+`detection/third_party/apriltag` submodule is needed:
+
+```sh
+git submodule update --init detection/third_party/apriltag
+```
+
+(`detection/third_party/allwpilib` is no longer used by any build.)
+
+## Detector behaviour (all interfaces)
+
+- **One image size per detector.** Width and height must be multiples of 8
+  with `width * height < 2^22` (1920x1080 is fine). A frame of another size is
+  an error; the detector never reallocates GPU memory silently. Build a new
+  detector for a new size.
+- **Threading.** A detector owns its CUDA stream, GPU buffers and decode
+  thread pool. Use it from the thread that created it, one call at a time.
+  Separate detectors (one per camera) may run in parallel.
+- **Lifetime.** Results are copied out of the detector; the C ABI's results
+  are valid until the next `ct_detect`.
+- **Errors** never cross a language boundary as C++ exceptions: Rust gets
+  `Result`, Python `ValueError`/`RuntimeError`, Java
+  `IllegalArgumentException`/`RuntimeException`, C a `NULL`/`-1` return plus
+  `ct_last_error()`.
+- **Coordinates.** Corners and centers are pixels in the input image, which
+  is distorted, not undistorted. The detector uses the distortion model only to
+  refine edges. They follow AprilTag's convention: the center of pixel `(x, y)`
+  is at `(x + 0.5, y + 0.5)`. Corner order is AprilTag's: bottom-left,
+  bottom-right, top-right, top-left of an upright tag.
+- **Pose** (when a tag size is given): camera-from-tag rotation and
+  translation in meters, `p_camera = R * p_tag + t`, with the tag in AprilTag's
+  frame (origin at the center, x right, y down, z into the tag). It is solved
+  with the camera's intrinsics *and* distortion after shifting corners to
+  OpenCV's pixel convention.
+- **Tunables:** `threads` (decode threads), `decimate` (1 or 2, default 2),
+  `min_white_black_diff` (default 5), `max_hamming` (0 to 2, default 1),
+  `refine_edges` (default on), `decode_sharpening` (default 0.25), and
+  `tag_size_m` (0 or unset disables the pose).
+
+## Rust
+
+```toml
+[dependencies]
+cuda_tags = { path = "path/to/CudaTags/src/main/rust", features = ["cuda"] }
+```
+
+```rust
+use cuda_tags::{CameraIntrinsics, Detector, Distortion, Options};
+
+let camera = CameraIntrinsics { fx: 600.0, fy: 600.0, cx: 320.0, cy: 240.0 };
+let options = Options { threads: 2, tag_size_m: Some(0.1651), ..Options::default() };
+let mut detector = Detector::with_options(camera, Distortion::default(), 640, 480, &options)?;
+for tag in detector.detect(&gray_frame)? {          // &[u8], width * height bytes
+    println!("{} {:?} {:?}", tag.id, tag.corners, tag.pose);
+}
+```
+
+`Detector::new(camera, distortion, width, height, threads)` is the short
+form, with default options and no pose. `Detector` is neither `Send` nor
+`Sync`.
+
+`build.rs` behaves as follows:
+
+- **With the `cuda` feature, on Linux, with a CUDA toolkit:** it builds the
+  C++/CUDA sources with CMake and links them statically. OpenCV and
+  `libstdc++` stay dynamic, and the CUDA runtime is linked statically. It
+  finds CUDA through `CUDA_HOME`, `CUDA_PATH` or `CUDAToolkit_ROOT`, then
+  `/usr/local/cuda`, then `nvcc` on `PATH`. It finds OpenCV with
+  `pkg-config opencv4`. It honours `CMAKE_CUDA_ARCHITECTURES` (default `87`).
+- **Without the feature, off Linux, or without a toolkit:** it builds a stub,
+  and `Detector::new` returns `Error::Unavailable`.
+  `cuda_tags::cuda_available()` and `stub_reason()` report which build you
+  got. Set `CUDA_TAGS_REQUIRE_CUDA=1` to turn a missing toolkit into a build
+  error, for deployment builds.
+
+Example (uses the golden test image by default):
+
+```sh
+cargo run --release --features cuda --example detect_pgm -- [image.pgm] [fx fy cx cy] [tag_size_m]
+```
+
+## C ABI
+
+`libcuda_tags.so` exports only the `ct_*` functions declared in
+`cuda_tags/cuda_tags.h`, ABI version 1:
+
+- `ct_create`, `ct_detect`, `ct_detection_at`, `ct_destroy`, `ct_last_error`
+  and `ct_abi_version`, compatible with the drone project's `cuda_tags_ffi`
+  shim.
+- Additions: `ct_options_init` with `ct_create_with_options` for every
+  tunable, `ct_detection_homography`, and `ct_cuda_available`.
+
+```sh
+./install/self.bash   # build, test, install to /usr/local (PREFIX=... to change)
+```
+
+This installs `lib/libcuda_tags.so` and `include/cuda_tags/cuda_tags.h`.
+
+## Python
+
+```sh
+pip install .                               # on the Jetson; builds with CUDA
+CUDATAGS_TYPES_ONLY=1 pip install .         # type stubs only, any machine
+```
+
+```python
+import cuda_tags, numpy as np
+
+detector = cuda_tags.CudaTagsWrapper(
+    cuda_tags.tag36h11,
+    cuda_tags.CameraMatrix(fx=600, cx=320, fy=600, cy=240),
+    cuda_tags.DistCoeffs(0, 0, 0, 0, 0),     # k1, k2, p1, p2, k3
+    2, 640, 480,                             # threads, width, height
+    tag_size_m=0.1651)
+for tag in detector.process(frame):          # (h, w), (h, w, 3) or (h, w, 4) uint8
+    print(tag.id, tag.corners, tag.pose and tag.pose.translation)
+```
+
+- `process` accepts any uint8 layout. Padded rows are read in place, and
+  other strided views are copied first.
+- Three- and four-channel images are BGR/BGRA by default. Pass
+  `color_order="rgb"` for RGB/RGBA.
+- `process` releases the GIL while it detects.
+- `cuda_tags.to_gray(image)` returns the gray image the detector sees.
+
+## Java
+
+Configure with `-DCUDATAGS_BUILD_JAVA=ON` to build `cuda-tags.jar` and
+`libcuda_tags_jni.so`. Then:
+
+```java
+try (CudaTags detector = new CudaTags(640, 480, fx, fy, cx, cy, distortion, 2, 0.1651)) {
+  CudaTags.Detection[] tags = detector.detect(grayBytes);    // or detect(pixels, stride, channels), detectMat(mat.getNativeObjAddr())
+}
+```
+
+## Building and testing with CMake
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # CUDA is used when nvcc is found
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Options:
+
+- `CUDATAGS_WITH_CUDA`: on when a CUDA compiler is found.
+- `CUDATAGS_BUILD_C_LIBRARY`: default on.
+- `CUDATAGS_BUILD_PYTHON`: on under scikit-build.
+- `CUDATAGS_BUILD_JAVA`: default off.
+- `CUDATAGS_BUILD_TESTS`: on for top-level builds.
+- `CMAKE_CUDA_ARCHITECTURES`: default `87`.
+
+Tests:
+
+- **`core_cpu`** (any machine): option validation, color conversion with
+  strides and channel orders, the pose solve with distortion, and C ABI error
+  handling.
+- **`golden_cpu`** (any machine): `tests/golden/tags_640x480.pgm`, three tags
+  at known poses rendered by `tests/golden/generate_golden.cpp`, run through
+  AprilTag's CPU detector. This uses the patched `apriltag_971/apriltag.c`
+  that the GPU detector links against. Ids, sub-pixel corners and poses must
+  match the ground truth in `tags_640x480.txt`.
+- **`golden_gpu`** (CUDA builds): the same image and checks through the GPU
+  detector, plus rejection of a wrongly sized frame.
+- **`tests/test_binding.py`**: the Python module. It runs on a stub build
+  too; set `CUDA_TAGS_EXTENSION` to the built `cuda_tags*.so`.
+- **`cargo test`**: the Rust crate. On a stub build it checks the
+  `Unavailable` path; with `--features cuda` on a Jetson it runs the golden
+  image.
+
+CI (`.github/workflows/ci.yml`) runs everything that needs no GPU on Linux
+and macOS. On a Jetson, run everything:
+
+```sh
+./scripts/test-jetson.sh
+```
+
+## Repository layout
+
+```
+detection/
+  CMakeLists.txt        apriltag (static) + 971apriltag (static, CUDA)
+  frc971/orin/          Team 971's GPU detector
+  apriltag_971/         upstream apriltag.c with quad_decode_index() and
+                        reconcile_detections() exported for the GPU detector
+                        (its SHA-256 pins the upstream file it was copied from)
+  third_party/apriltag  upstream AprilTag (submodule)
+src/main/cpp/           shared C++ core and C ABI
+src/main/rust/          Rust crate (build.rs drives CMake)
+src/main/python/        Python module and package
+src/main/java/          Java class and JNI
+tests/                  C++/Python tests, golden image
+install/                Jetson setup scripts
+```
 
 ## License
 
-This repository includes the upstream AprilTag library under its own license (`third_party/apriltag/LICENSE.md`).  
-See `LICENSE.txt` in this repository for the overall project licensing details.
-
-## Development without CUDA
-
-Python 3.10+ can install the API type declarations without building CUDA:
-
-```sh
-CUDATAGS_TYPES_ONLY=1 python -m pip install .
-```
-
-The wheel includes `py.typed` and explicit public stubs. Importing `cuda_tags`
-works without the native backend; accessing detector classes requires a native
-build and gives an explanatory ImportError. Type checkers read the stubs without
-loading that backend. Images must be C-contiguous uint8 NumPy arrays with shape
-(H, W), (H, W, 1), (H, W, 3) BGR, or (H, W, 4) BGRA. Use
-`numpy.ascontiguousarray` explicitly for sliced/transposed arrays.
-
-Rust requires 1.88+. Default builds expose all bridge signatures for
-`cargo check` and `cargo doc` without CUDA. Executables calling native functions
-must enable `native`; the camera example additionally needs `camera-example`.
-Constructor and processing calls now return `Result` and must be handled.
-Native builds accept `CUDA_HOME`, `OPENCV_INCLUDE_DIR`, and `CUDATAGS_LIB_DIR`.
-Both aarch64 and x86_64 library directories are supported. CUDA, OpenCV, and the
-built AprilTag libraries must match the target architecture.
-
-## Ranked improvements in this revision
-
-Ranked from performance work through correctness to API/development improvements:
-
-1. Reuse grayscale conversion buffers across frames in both bindings.
-2. Reserve result-vector capacity before copying detections.
-3. Preserve the direct grayscale path; copy padded Rust rows only when needed.
-4. Remove duplicate tag-family allocation and destroy owned families.
-5. Construct replacement detectors before destroying the previous detector.
-6. Validate Python rank, dtype, contiguity, dimensions, and channels; support BGRA.
-7. Validate Rust slice length and row stride before constructing OpenCV views.
-8. Translate C++ failures into Rust Results and reject invalid constructor inputs.
-9. Align CXX/CXX-build versions, lock Rust resolution, bound Python dependencies,
-   and make camera dependencies optional with only the needed OpenCV modules.
-10. Ship Python typing metadata and a types-only installation path; allow Rust
-    checking/documentation without native linking, with configurable native paths.
-
-Validation on the development Mac covers Rust checking/tests/documentation,
-Python import/stub tests, and types-only wheel contents. Native C++/CUDA changes
-are not validated here: no CUDA compiler/device is installed. No GPU speedup is
-claimed and detection kernels are unchanged. Before deploying, build both native
-bindings on the target CUDA host, compare IDs/corners against fixed tag images,
-exercise grayscale/BGR/BGRA and padded rows, and run compute-sanitizer. Benchmark
-warm steady-state frames at fixed resolutions and report latency distributions;
-a CPU simulation cannot validate CUDA races or establish GPU performance.
+Apache-2.0 (`LICENSE.txt`). The upstream AprilTag library and its derived
+`detection/apriltag_971/apriltag.c` are under AprilTag's BSD 2-Clause license
+(`detection/third_party/apriltag/LICENSE.md`).

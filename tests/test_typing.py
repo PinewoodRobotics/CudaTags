@@ -20,5 +20,6 @@ class TypingTests(unittest.TestCase):
         tree = ast.parse((PACKAGE / 'cuda_tags/__init__.pyi').read_text())
         names = {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
         names |= {n.target.id for n in tree.body if isinstance(n, ast.AnnAssign)}
+        names |= {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
         self.assertEqual(set(package.__all__), names)
         self.assertTrue((PACKAGE / 'cuda_tags/py.typed').exists())
