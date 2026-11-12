@@ -1,42 +1,25 @@
+# JetPack 6 (CUDA 12.6) build environment for CudaTags.
 FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0
 
-# Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies, CUDA toolkit (for nvcc), and required libraries
-# nvidia-cuda-toolkit provides the 'fake' CUDA environment (compiler + headers) on non-Jetson hardware
 RUN apt-get update && apt-get install -y \
-    bash \
     build-essential \
     cmake \
     ninja-build \
-    openjdk-17-jdk \
-    coreutils \
-    ncurses-bin \
-    sudo \
-    procps \
-    findutils \
     git \
-    gcc-12 \
-    g++-12 \
-    libopencv-dev \
-    protobuf-compiler \
-    libxrandr-dev \
-    libssh-dev \
     pkg-config \
-    libclang-dev \
+    libopencv-dev \
     python3 \
+    python3-dev \
     python3-pip \
     python3-numpy \
     pybind11-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+    openjdk-17-jdk \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /opt
 
-# Set environment variables to match the simulated CUDA paths
 ENV CUDA_HOME=/usr/local/cuda
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64
 ENV PATH=$PATH:/usr/local/cuda/bin

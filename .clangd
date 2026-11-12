@@ -1,23 +1,12 @@
-
 CompileFlags:
+  # Configure first: cmake -S . -B build (writes build/compile_commands.json)
   CompilationDatabase: build
   Add:
     - -std=c++20
-    - -I../src/main/rust/src/cpp
+    - -I../src/main/cpp/include
     - -I../detection
-    - -I../detection/third_party/apriltag
-    - -I/usr/local/cuda/include/
+    - -I../detection/third_party
+    - -I/usr/local/cuda/include
     - -I/usr/include/opencv4
-    - -I../target/cxxbridge
-    - -I/usr/lib/jvm/default-java/include
-    - -I/usr/lib/jvm/default-java/include/linux
-    - -I/usr/local/include
-    - -I/usr/local/include/wpiutil
-    - -I/home/ubuntu/Documents/allwpilib/wpiutil/src/main/native/include
-    - -I/usr/lib/jvm/java-17-openjdk-arm64/include
-    - -I/usr/lib/jvm/java-17-openjdk-arm64/include/linux
-    - -I../target/cxxbridge
-    - -I/usr/include/python3.10
-    - -I/usr/include/pybind11
 Index:
   Background: Build

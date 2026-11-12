@@ -6,18 +6,21 @@ include setup.py
 
 # Source code needed for Python build
 graft detection
+graft src/main/cpp
 graft src/main/python
 
 # Exclude build artifacts
 prune detection/build
+prune detection/third_party/allwpilib
 prune build
 prune target
 prune install
 prune src/main/python/cuda_tags.egg-info
 
-# Exclude other languages (not needed for Python build)
+# Exclude other languages and tests (not needed for the Python build)
 prune src/main/java
 prune src/main/rust
+prune tests
 
 # Exclude other unnecessary files
 exclude Dockerfile
