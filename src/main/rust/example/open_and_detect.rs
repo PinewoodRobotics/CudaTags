@@ -38,7 +38,8 @@ fn main() -> opencv::Result<()> {
         5,
         640,
         480,
-    );
+    )
+    .expect("Could not create CUDA detector");
 
     let window = "cam";
     highgui::named_window(window, highgui::WINDOW_AUTOSIZE)?;
@@ -73,13 +74,16 @@ fn main() -> opencv::Result<()> {
 
         let start = Instant::now();
         // Get detections instead of dropping them on the floor
-        let detections = gpu_detector.pin_mut().process(RustImage {
-            pixels,
-            width,
-            height,
-            stride,
-            channels,
-        });
+        let detections = gpu_detector
+            .pin_mut()
+            .process(RustImage {
+                pixels,
+                width,
+                height,
+                stride,
+                channels,
+            })
+            .expect("Detection failed");
         let duration = start.elapsed();
 
         frame_count += 1;

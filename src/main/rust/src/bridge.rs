@@ -1,6 +1,3 @@
-use cxx::UniquePtr;
-use std::pin::Pin;
-
 #[cxx::bridge]
 pub mod ffi {
 
@@ -15,9 +12,12 @@ pub mod ffi {
             nthreads: i32,
             imgWidth: i32,
             imgHeight: i32,
-        ) -> UniquePtr<CudaTagsWrapper>;
+        ) -> Result<UniquePtr<CudaTagsWrapper>>;
 
-        fn process(self: Pin<&mut CudaTagsWrapper>, image: RustImage) -> Vec<DetectionResult>;
+        fn process(
+            self: Pin<&mut CudaTagsWrapper>,
+            image: RustImage,
+        ) -> Result<Vec<DetectionResult>>;
     }
 
     pub struct RustImage<'a> {

@@ -16,15 +16,19 @@ struct RustImage;
 class CudaTagsWrapper {
 public:
   CudaTagsWrapper(TagType tagType, CameraMatrix camMatrix,
-                  DistCoeffs camDistCoeffs, int nthreads, int imgHeight,
-                  int imgWidth);
+                  DistCoeffs camDistCoeffs, int nthreads, int imgWidth,
+                  int imgHeight);
   ~CudaTagsWrapper();
+  CudaTagsWrapper(const CudaTagsWrapper &) = delete;
+  CudaTagsWrapper &operator=(const CudaTagsWrapper &) = delete;
 
   rust::Vec<DetectionResult> process(RustImage image);
 
 private:
   frc971::apriltag::GpuDetector *gpu_processor;
   apriltag_detector_t *tags_detector;
+  apriltag_family_t *tag_family;
+  cv::Mat gray_buffer;
   frc971::apriltag::CameraMatrix camera_matrix;
   frc971::apriltag::DistCoeffs dist_coeffs;
 };

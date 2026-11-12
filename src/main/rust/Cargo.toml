@@ -2,6 +2,7 @@
 name = "cuda_tags"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 authors = ["Denis Koterov <denis.koterov@gmail.com>"]
 description = "Rust wrapper for detecting AprilTags using GPU acceleration"
 repository = "https://github.com/godbrigero/CudaTags"
@@ -14,19 +15,23 @@ name = "cuda_tags"
 path = "src/lib.rs"
 
 [dependencies]
-cxx = "1.0.150"
-libc = "0.2.171"
+cxx = "=1.0.205"
+opencv = { version = "0.97.2", optional = true, default-features = false, features = ["highgui", "imgproc", "videoio"] }
 
-[dev-dependencies]
-opencv = "0.97.2"
+[features]
+default = []
+native = []
+camera-example = ["native", "dep:opencv"]
 
 [build-dependencies]
-cxx-build = "1.0.150"
+cxx-build = "=1.0.205"
 
 [[example]]
 name = "open_and_detect"
+required-features = ["camera-example"]
 path = "example/open_and_detect.rs"
 
 [[example]]
 name = "base_create"
+required-features = ["native"]
 path = "example/base_create.rs"

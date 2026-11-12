@@ -21,7 +21,8 @@ fn main() {
         5,
         640,
         480,
-    );
+    )
+    .expect("Could not create CUDA detector");
 
     println!("GPU detector created");
 }

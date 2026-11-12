@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc.hpp>
@@ -35,16 +36,22 @@ CudaTagsWrapper::CudaTagsWrapper(TagType tagType, CameraMatrix camMatrix,
       DistCoeffs{camDistCoeffs.k1, camDistCoeffs.k2, camDistCoeffs.p1,
                  camDistCoeffs.p2, camDistCoeffs.k3};
 
-  auto tag_family = tag36h11_create();
-  switch (tagType) {
-  case TagType::tag36h11:
-    tag_family = tag36h11_create();
-  }
+  if (nthreads <= 0 || imgWidth <= 0 || imgHeight <= 0)
+    throw std::invalid_argument("Threads and image dimensions must be positive");
+  if (tagType != TagType::tag36h11)
+    throw std::invalid_argument("Unsupported tag family");
+  this->tag_family = tag36h11_create();
 
   this->tags_detector = maketagdetector(tag_family, nthreads, false);
+  try {
   this->gpu_processor =
       new GpuDetector(imgWidth, imgHeight, this->tags_detector,
                       this->camera_matrix, this->dist_coeffs);
+  } catch (...) {
+    apriltag_detector_destroy(this->tags_detector);
+    tag36h11_destroy(this->tag_family);
+    throw;
+  }
 }
 
 CudaTagsWrapper::~CudaTagsWrapper() {
@@ -53,26 +60,31 @@ CudaTagsWrapper::~CudaTagsWrapper() {
     apriltag_detector_destroy(this->tags_detector);
     this->tags_detector = nullptr;
   }
+  tag36h11_destroy(this->tag_family);
 }
 
 std::vector<DetectionResult>
 CudaTagsWrapper::process(uint8_t *data, int width, int height, int channels) {
+  if (width <= 0 || height <= 0 || (channels != 1 && channels != 3 && channels != 4))
+    throw std::invalid_argument("Invalid image dimensions or channels");
   if (width != this->gpu_processor->width() ||
       height != this->gpu_processor->height()) {
-    delete this->gpu_processor;
-    this->gpu_processor = new frc971::apriltag::GpuDetector(
+    auto *replacement = new frc971::apriltag::GpuDetector(
         width, height, this->tags_detector, this->camera_matrix,
         this->dist_coeffs);
+    delete this->gpu_processor;
+    this->gpu_processor = replacement;
   }
 
   // Always convert to grayscale before detection
-  cv::Mat input_img(height, width, (channels == 1 ? CV_8UC1 : CV_8UC3), data);
+  cv::Mat input_img(height, width, CV_MAKETYPE(CV_8U, channels), data);
 
-  cv::Mat gray;
+  cv::Mat &gray = this->gray_buffer;
   if (channels == 1) {
-    gray = input_img;
+    this->gpu_processor->DetectGrayHost(input_img.data);
+    return to_detection_results(this->gpu_processor->Detections());
   } else {
-    cv::cvtColor(input_img, gray, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(input_img, gray, channels == 4 ? cv::COLOR_BGRA2GRAY : cv::COLOR_BGR2GRAY);
   }
 
   // Detect in grayscale
@@ -84,6 +96,7 @@ CudaTagsWrapper::process(uint8_t *data, int width, int height, int channels) {
 
 std::vector<DetectionResult> to_detection_results(const zarray_t *detections) {
   std::vector<DetectionResult> results;
+  results.reserve(zarray_size(detections));
   for (int i = 0; i < zarray_size(detections); ++i) {
     apriltag_detection_t *detection;
     zarray_get(detections, i, &detection);

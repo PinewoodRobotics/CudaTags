@@ -104,15 +104,14 @@ version = "0.1.0"
 dependencies = [
  "cxx",
  "cxx-build",
- "libc",
  "opencv",
 ]
 
 [[package]]
 name = "cxx"
-version = "1.0.188"
+version = "1.0.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ac4eaf7ebe29e92f1b091ceefec7710a53a6f6154b2460afda626c113b65b9"
+checksum = "c8a02bfeba9074b2bbb39492c9b0908ec854f455a3cccdcde7a1de55e2315e40"
 dependencies = [
  "cc",
  "cxx-build",
@@ -125,9 +124,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.188"
+version = "1.0.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2abd4c3021eefbac5149f994c117b426852bca3a0aad227698527bca6d4ea657"
+checksum = "bbc2ac76997619d2d888b58ad79488f1c835de41ca4dd3dd7082acf4ecb0a50f"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -135,39 +134,39 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.188"
+version = "1.0.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f12fbc5888b2311f23e52a601e11ad7790d8f0dbb903ec26e2513bf5373ed70"
+checksum = "54a486ed16a3f2a053fe7f5b98db4c1a59846a23e8cb9e49f9d1bd48830d51a2"
 dependencies = [
  "clap",
  "codespan-reporting",
  "indexmap",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.188"
+version = "1.0.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83d3dd7870af06e283f3f8ce0418019c96171c9ce122cfb9c8879de3d84388fd"
+checksum = "c72569be94e2283764d334cd285980b747dbe221e27e315484eb6bcd93fa808a"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.188"
+version = "1.0.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a26f0d82da663316786791c3d0e9f9edc7d1ee1f04bdad3d2643086a69d6256c"
+checksum = "423e795284a7f7b3f843c956a5322c4bc497b60c2dd1a6339da10313cb18d575"
 dependencies = [
  "indexmap",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -178,9 +177,9 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "equivalent"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "find-msvc-tools"
@@ -214,15 +213,15 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "hashbrown"
-version = "0.16.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "indexmap"
-version = "2.12.0"
+version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6717a8d2a5a929a1a2eb43a12812498ed141a0bcfb7e8f7844fbdbe4303bba9f"
+checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown",
@@ -405,7 +404,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -425,6 +424,17 @@ name = "syn"
 version = "2.0.110"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a99801b5bd34ede4cf3fc688c5919368fea4e4814a4664359503e6015b280aea"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -529,7 +539,7 @@ checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -540,7 +550,7 @@ checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.110",
 ]
 
 [[package]]

@@ -20,8 +20,10 @@ class CudaTagsWrapper {
 public:
   CudaTagsWrapper(TagType tagType, frc971::apriltag::CameraMatrix camMatrix,
                   frc971::apriltag::DistCoeffs camDistCoeffs, int nthreads,
-                  int imgHeight, int imgWidth);
+                  int imgWidth, int imgHeight);
   ~CudaTagsWrapper();
+  CudaTagsWrapper(const CudaTagsWrapper &) = delete;
+  CudaTagsWrapper &operator=(const CudaTagsWrapper &) = delete;
 
   std::vector<DetectionResult> process(uint8_t *data, int width, int height,
                                        int channels);
@@ -29,6 +31,8 @@ public:
 private:
   frc971::apriltag::GpuDetector *gpu_processor;
   apriltag_detector_t *tags_detector;
+  apriltag_family_t *tag_family;
+  cv::Mat gray_buffer;
   frc971::apriltag::CameraMatrix camera_matrix;
   frc971::apriltag::DistCoeffs dist_coeffs;
 };

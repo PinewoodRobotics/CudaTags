@@ -224,3 +224,52 @@ The exact wiring depends on your PhotonVision / robot codebase, but this library
 
 This repository includes the upstream AprilTag library under its own license (`third_party/apriltag/LICENSE.md`).  
 See `LICENSE.txt` in this repository for the overall project licensing details.
+
+## Development without CUDA
+
+Python 3.10+ can install the API type declarations without building CUDA:
+
+```sh
+CUDATAGS_TYPES_ONLY=1 python -m pip install .
+```
+
+The wheel includes `py.typed` and explicit public stubs. Importing `cuda_tags`
+works without the native backend; accessing detector classes requires a native
+build and gives an explanatory ImportError. Type checkers read the stubs without
+loading that backend. Images must be C-contiguous uint8 NumPy arrays with shape
+(H, W), (H, W, 1), (H, W, 3) BGR, or (H, W, 4) BGRA. Use
+`numpy.ascontiguousarray` explicitly for sliced/transposed arrays.
+
+Rust requires 1.88+. Default builds expose all bridge signatures for
+`cargo check` and `cargo doc` without CUDA. Executables calling native functions
+must enable `native`; the camera example additionally needs `camera-example`.
+Constructor and processing calls now return `Result` and must be handled.
+Native builds accept `CUDA_HOME`, `OPENCV_INCLUDE_DIR`, and `CUDATAGS_LIB_DIR`.
+Both aarch64 and x86_64 library directories are supported. CUDA, OpenCV, and the
+built AprilTag libraries must match the target architecture.
+
+## Ranked improvements in this revision
+
+Ranked from performance work through correctness to API/development improvements:
+
+1. Reuse grayscale conversion buffers across frames in both bindings.
+2. Reserve result-vector capacity before copying detections.
+3. Preserve the direct grayscale path; copy padded Rust rows only when needed.
+4. Remove duplicate tag-family allocation and destroy owned families.
+5. Construct replacement detectors before destroying the previous detector.
+6. Validate Python rank, dtype, contiguity, dimensions, and channels; support BGRA.
+7. Validate Rust slice length and row stride before constructing OpenCV views.
+8. Translate C++ failures into Rust Results and reject invalid constructor inputs.
+9. Align CXX/CXX-build versions, lock Rust resolution, bound Python dependencies,
+   and make camera dependencies optional with only the needed OpenCV modules.
+10. Ship Python typing metadata and a types-only installation path; allow Rust
+    checking/documentation without native linking, with configurable native paths.
+
+Validation on the development Mac covers Rust checking/tests/documentation,
+Python import/stub tests, and types-only wheel contents. Native C++/CUDA changes
+are not validated here: no CUDA compiler/device is installed. No GPU speedup is
+claimed and detection kernels are unchanged. Before deploying, build both native
+bindings on the target CUDA host, compare IDs/corners against fixed tag images,
+exercise grayscale/BGR/BGRA and padded rows, and run compute-sanitizer. Benchmark
+warm steady-state frames at fixed resolutions and report latency distributions;
+a CPU simulation cannot validate CUDA races or establish GPU performance.
