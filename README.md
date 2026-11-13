@@ -177,7 +177,8 @@ Options:
 - `CUDATAGS_BUILD_PYTHON`: on under scikit-build.
 - `CUDATAGS_BUILD_JAVA`: default off.
 - `CUDATAGS_BUILD_TESTS`: on for top-level builds.
-- `CMAKE_CUDA_ARCHITECTURES`: default `87`.
+- `CMAKE_CUDA_ARCHITECTURES`: default `87`, or the `CMAKE_CUDA_ARCHITECTURES`
+  (or `CUDAARCHS`) environment variable, which `pip install .` also honours.
 
 Tests:
 

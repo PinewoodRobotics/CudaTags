@@ -1,0 +1,7 @@
+/* libcuda_tags.so exports the C ABI (cuda_tags.h) and nothing else. */
+{
+  global:
+    ct_*;
+  local:
+    *;
+};

@@ -50,8 +50,13 @@ if(CUDATAGS_BUILD_C_LIBRARY)
     target_link_libraries(cuda_tags_c PRIVATE 971apriltag apriltag)
   endif()
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    # Keep apriltag, frc971 and CUDA runtime symbols private.
-    target_link_options(cuda_tags_c PRIVATE "LINKER:--exclude-libs,ALL")
+    # Keep apriltag, frc971 and CUDA runtime symbols private, and the C++
+    # standard library's template instantiations (which hidden visibility
+    # does not cover) too: export ct_* only.
+    target_link_options(cuda_tags_c PRIVATE "LINKER:--exclude-libs,ALL"
+      "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cuda_tags.map")
+    set_property(TARGET cuda_tags_c APPEND PROPERTY
+      LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cuda_tags.map)
   endif()
   include(GNUInstallDirs)
   install(TARGETS cuda_tags_c
