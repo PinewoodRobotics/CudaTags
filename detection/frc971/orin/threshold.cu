@@ -79,6 +79,40 @@ __global__ void InternalCudaNoDecimate(
   }
 }
 
+// CudaTags: converts a whole color frame to gray (writing gray and, when
+// not null, gray_copy, e.g. GPU-mapped host memory for the CPU decode).
+__global__ void InternalColorToGray(const uint8_t *color, size_t stride,
+                                    ct_pixel_layout layout, uint8_t *gray,
+                                    uint8_t *gray_copy, size_t width,
+                                    size_t height) {
+  size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  while (i < width * height) {
+    const size_t row = i / width;
+    const size_t col = i - width * row;
+    const uint8_t value = ct_pixel_gray(color + row * stride, col, &layout);
+    gray[i] = value;
+    if (gray_copy != nullptr) gray_copy[i] = value;
+    i += blockDim.x * gridDim.x;
+  }
+}
+
+// CudaTags: decimates a color frame by `factor` (1 or 2), converting only
+// the pixels it keeps to gray.
+__global__ void InternalColorDecimate(const uint8_t *color, size_t stride,
+                                      ct_pixel_layout layout,
+                                      uint8_t *decimated_image,
+                                      size_t decimated_width,
+                                      size_t decimated_height, size_t factor) {
+  size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  while (i < decimated_width * decimated_height) {
+    const size_t row = i / decimated_width;
+    const size_t col = i - decimated_width * row;
+    decimated_image[i] =
+        ct_pixel_gray(color + row * factor * stride, col * factor, &layout);
+    i += blockDim.x * gridDim.x;
+  }
+}
+
 // Returns the min and max for a row of 4 pixels.
 __forceinline__ __device__ uchar2 minmax(uchar4 row) {
   uint8_t min_val = std::min(std::min(row.x, row.y), std::min(row.z, row.w));
@@ -188,26 +222,14 @@ __global__ void InternalThreshold(const uint8_t *decimated_image,
 
 }  // namespace
 
-void CudaToGreyscaleAndDecimate(
-    const uint8_t *color_image, uint8_t *gray_image, uint8_t *decimated_image,
-    uint8_t *unfiltered_minmax_image, uint8_t *minmax_image,
-    uint8_t *thresholded_image, size_t width, size_t height,
-    size_t min_white_black_diff, CudaStream *stream) {
-  CHECK((width % 8) == 0);
-  CHECK((height % 8) == 0);
+// Steps 2-4 shared by every entry point: block min/max, blur, threshold of
+// an already decimated gray image.
+static void ThresholdDecimated(const uint8_t *decimated_image,
+                        uint8_t *unfiltered_minmax_image,
+                        uint8_t *minmax_image, uint8_t *thresholded_image,
+                        size_t decimated_width, size_t decimated_height,
+                        size_t min_white_black_diff, CudaStream *stream) {
   constexpr size_t kThreads = 256;
-  {
-    // Step one, convert to gray and decimate.
-    size_t kBlocks = (width * height + kThreads - 1) / kThreads / 4;
-    InternalCudaToGreyscaleAndDecimate<<<kBlocks, kThreads, 0,
-                                               stream->get()>>>(
-        color_image, gray_image, decimated_image, width, height);
-    MaybeCheckAndSynchronize();
-  }
-
-  size_t decimated_width = width / 2;
-  size_t decimated_height = height / 2;
-
   {
     // Step 2, compute a min/max for each block of 4x4 (16) pixels.
     dim3 threads(16, 16, 1);
@@ -231,13 +253,36 @@ void CudaToGreyscaleAndDecimate(
   {
     // Now, write out 127 if the min/max are too close to each other, or 0/255
     // if the pixels are above or below the average of the min/max.
-    size_t kBlocks = (width * height / 4 + kThreads - 1) / kThreads / 4;
+    size_t kBlocks =
+        (decimated_width * decimated_height + kThreads - 1) / kThreads / 4;
     InternalThreshold<<<kBlocks, kThreads, 0, stream->get()>>>(
         decimated_image, reinterpret_cast<uchar2 *>(minmax_image),
         thresholded_image, decimated_width, decimated_height,
         min_white_black_diff);
     MaybeCheckAndSynchronize();
   }
+}
+
+void CudaToGreyscaleAndDecimate(
+    const uint8_t *color_image, uint8_t *gray_image, uint8_t *decimated_image,
+    uint8_t *unfiltered_minmax_image, uint8_t *minmax_image,
+    uint8_t *thresholded_image, size_t width, size_t height,
+    size_t min_white_black_diff, CudaStream *stream) {
+  CHECK((width % 8) == 0);
+  CHECK((height % 8) == 0);
+  constexpr size_t kThreads = 256;
+  {
+    // Step one, convert to gray and decimate.
+    size_t kBlocks = (width * height + kThreads - 1) / kThreads / 4;
+    InternalCudaToGreyscaleAndDecimate<<<kBlocks, kThreads, 0,
+                                               stream->get()>>>(
+        color_image, gray_image, decimated_image, width, height);
+    MaybeCheckAndSynchronize();
+  }
+
+  ThresholdDecimated(decimated_image, unfiltered_minmax_image, minmax_image,
+                     thresholded_image, width / 2, height / 2,
+                     min_white_black_diff, stream);
 }
 
 void CudaDecimate(
@@ -257,39 +302,9 @@ void CudaDecimate(
     MaybeCheckAndSynchronize();
   }
 
-  size_t decimated_width = width / 2;
-  size_t decimated_height = height / 2;
-
-  {
-    // Step 2, compute a min/max for each block of 4x4 (16) pixels.
-    dim3 threads(16, 16, 1);
-    dim3 blocks((decimated_width / 4 + 15) / 16,
-                (decimated_height / 4 + 15) / 16, 1);
-
-    InternalBlockMinMax<<<blocks, threads, 0, stream->get()>>>(
-        decimated_image, reinterpret_cast<uchar2 *>(unfiltered_minmax_image),
-        decimated_width / 4, decimated_height / 4);
-    MaybeCheckAndSynchronize();
-
-    // Step 3, Blur those min/max's a further +- 1 block in each direction using
-    // min/max.
-    InternalBlockFilter<<<blocks, threads, 0, stream->get()>>>(
-        reinterpret_cast<uchar2 *>(unfiltered_minmax_image),
-        reinterpret_cast<uchar2 *>(minmax_image), decimated_width / 4,
-        decimated_height / 4);
-    MaybeCheckAndSynchronize();
-  }
-
-  {
-    // Now, write out 127 if the min/max are too close to each other, or 0/255
-    // if the pixels are above or below the average of the min/max.
-    size_t kBlocks = (width * height / 4 + kThreads - 1) / kThreads / 4;
-    InternalThreshold<<<kBlocks, kThreads, 0, stream->get()>>>(
-        decimated_image, reinterpret_cast<uchar2 *>(minmax_image),
-        thresholded_image, decimated_width, decimated_height,
-        min_white_black_diff);
-    MaybeCheckAndSynchronize();
-  }
+  ThresholdDecimated(decimated_image, unfiltered_minmax_image, minmax_image,
+                     thresholded_image, width / 2, height / 2,
+                     min_white_black_diff, stream);
 }
 
 void CudaNoDecimate(
@@ -309,39 +324,43 @@ void CudaNoDecimate(
     MaybeCheckAndSynchronize();
   }
 
-  size_t decimated_width = width; // / 2;
-  size_t decimated_height = height; // / 2;
+  ThresholdDecimated(decimated_image, unfiltered_minmax_image, minmax_image,
+                     thresholded_image, width, height, min_white_black_diff,
+                     stream);
+}
 
-  {
-    // Step 2, compute a min/max for each block of 4x4 (16) pixels.
-    dim3 threads(16, 16, 1);
-    dim3 blocks((decimated_width / 4 + 15) / 16,
-                (decimated_height / 4 + 15) / 16, 1);
+void CudaColorToGray(const uint8_t *color, size_t stride,
+                     const ct_pixel_layout &layout, uint8_t *gray,
+                     uint8_t *gray_copy, size_t width, size_t height,
+                     CudaStream *stream) {
+  constexpr size_t kThreads = 256;
+  const size_t blocks = (width * height + kThreads - 1) / kThreads / 4;
+  InternalColorToGray<<<blocks, kThreads, 0, stream->get()>>>(
+      color, stride, layout, gray, gray_copy, width, height);
+  MaybeCheckAndSynchronize();
+}
 
-    InternalBlockMinMax<<<blocks, threads, 0, stream->get()>>>(
-        decimated_image, reinterpret_cast<uchar2 *>(unfiltered_minmax_image),
-        decimated_width / 4, decimated_height / 4);
-    MaybeCheckAndSynchronize();
-
-    // Step 3, Blur those min/max's a further +- 1 block in each direction using
-    // min/max.
-    InternalBlockFilter<<<blocks, threads, 0, stream->get()>>>(
-        reinterpret_cast<uchar2 *>(unfiltered_minmax_image),
-        reinterpret_cast<uchar2 *>(minmax_image), decimated_width / 4,
-        decimated_height / 4);
-    MaybeCheckAndSynchronize();
-  }
-
-  {
-    // Now, write out 127 if the min/max are too close to each other, or 0/255
-    // if the pixels are above or below the average of the min/max.
-    size_t kBlocks = (decimated_width * decimated_height + kThreads - 1) / kThreads / 4;
-    InternalThreshold<<<kBlocks, kThreads, 0, stream->get()>>>(
-        decimated_image, reinterpret_cast<uchar2 *>(minmax_image),
-        thresholded_image, decimated_width, decimated_height,
-        min_white_black_diff);
-    MaybeCheckAndSynchronize();
-  }
+void CudaColorDecimate(const uint8_t *color, size_t stride,
+                       const ct_pixel_layout &layout, size_t factor,
+                       uint8_t *decimated_image,
+                       uint8_t *unfiltered_minmax_image, uint8_t *minmax_image,
+                       uint8_t *thresholded_image, size_t width, size_t height,
+                       size_t min_white_black_diff, CudaStream *stream) {
+  CHECK((width % 8) == 0);
+  CHECK((height % 8) == 0);
+  CHECK(factor == 1 || factor == 2);
+  constexpr size_t kThreads = 256;
+  const size_t decimated_width = width / factor;
+  const size_t decimated_height = height / factor;
+  const size_t blocks =
+      (decimated_width * decimated_height + kThreads - 1) / kThreads;
+  InternalColorDecimate<<<blocks, kThreads, 0, stream->get()>>>(
+      color, stride, layout, decimated_image, decimated_width,
+      decimated_height, factor);
+  MaybeCheckAndSynchronize();
+  ThresholdDecimated(decimated_image, unfiltered_minmax_image, minmax_image,
+                     thresholded_image, decimated_width, decimated_height,
+                     min_white_black_diff, stream);
 }
 
 }  // namespace frc971::apriltag

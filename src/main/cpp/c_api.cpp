@@ -119,6 +119,66 @@ int32_t ct_detect(ct_detector *detector, const uint8_t *pixels,
   return -1;
 }
 
+int32_t ct_detect_image(ct_detector *detector, const uint8_t *pixels,
+                        size_t length, size_t stride, int32_t format) {
+  if (detector == nullptr || pixels == nullptr) {
+    return Fail("ct_detect_image: null argument");
+  }
+  static constexpr cuda_tags::PixelFormat kFormats[] = {
+      cuda_tags::PixelFormat::kGray, cuda_tags::PixelFormat::kBgr,
+      cuda_tags::PixelFormat::kRgb, cuda_tags::PixelFormat::kBgra,
+      cuda_tags::PixelFormat::kRgba};
+  if (format < CT_FORMAT_GRAY || format > CT_FORMAT_RGBA) {
+    return Fail("ct_detect_image: unknown pixel format " +
+                std::to_string(format));
+  }
+  detector->detections = nullptr;
+  try {
+    const cuda_tags::Options &options = detector->detector.options();
+    cuda_tags::ImageView view;
+    view.data = pixels;
+    view.size = length;
+    view.width = options.width;
+    view.height = options.height;
+    view.stride = stride;
+    view.format = kFormats[format];
+    detector->detections = &detector->detector.Detect(view);
+    return static_cast<int32_t>(detector->detections->size());
+  } catch (...) {
+    FailFromException("ct_detect_image");
+  }
+  return -1;
+}
+
+uint8_t *ct_input_buffer(ct_detector *detector, size_t *size) {
+  if (size != nullptr) *size = 0;
+  if (detector == nullptr) {
+    Fail("ct_input_buffer: null argument");
+    return nullptr;
+  }
+  uint8_t *buffer = detector->detector.InputBuffer();
+  if (buffer == nullptr) {
+    Fail("ct_input_buffer: this build has no GPU input buffer");
+    return nullptr;
+  }
+  if (size != nullptr) *size = detector->detector.InputBufferSize();
+  return buffer;
+}
+
+int32_t ct_set_color_conversion(ct_detector *detector, int32_t conversion) {
+  if (detector == nullptr) return Fail("ct_set_color_conversion: null argument");
+  if (conversion != CT_COLOR_WHILE_DETECTING &&
+      conversion != CT_COLOR_BEFORE_DETECTING) {
+    return Fail("ct_set_color_conversion: unknown value " +
+                std::to_string(conversion));
+  }
+  detector->detector.SetColorConversion(
+      conversion == CT_COLOR_BEFORE_DETECTING
+          ? cuda_tags::ColorConversion::kBeforeDetecting
+          : cuda_tags::ColorConversion::kWhileDetecting);
+  return 0;
+}
+
 int32_t ct_detection_at(const ct_detector *detector, size_t index,
                         ct_detection *out) {
   if (detector == nullptr || out == nullptr ||

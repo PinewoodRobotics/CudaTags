@@ -6,7 +6,10 @@
 //                                             (runs anywhere; validates the
 //                                             golden data, the apriltag split
 //                                             and the core's pose solve)
-//   golden_test <image.pgm> <scene.txt> gpu   cuda_tags::Detector (CUDA)
+//   golden_test <image.pgm> <scene.txt> gpu   cuda_tags::Detector (CUDA),
+//                                             also checking that color and
+//                                             zero-copy frames give exactly
+//                                             the gray frame's detections
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -16,6 +19,7 @@
 #include <vector>
 
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include "apriltag/apriltag.h"
 #include "apriltag/tag36h11.h"
@@ -71,6 +75,98 @@ std::vector<cuda_tags::Detection> DetectCpu(const cv::Mat &gray) {
   return detections;
 }
 
+bool Same(const std::vector<cuda_tags::Detection> &a,
+          const std::vector<cuda_tags::Detection> &b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i].id != b[i].id || a[i].hamming != b[i].hamming ||
+        a[i].decision_margin != b[i].decision_margin ||
+        a[i].center != b[i].center || a[i].corners != b[i].corners ||
+        a[i].homography != b[i].homography ||
+        a[i].pose.has_value() != b[i].pose.has_value() ||
+        (a[i].pose && (a[i].pose->rotation != b[i].pose->rotation ||
+                       a[i].pose->translation != b[i].pose->translation))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+cuda_tags::ImageView View(const cv::Mat &image, cuda_tags::PixelFormat format) {
+  cuda_tags::ImageView view;
+  view.data = image.data;
+  view.width = static_cast<uint32_t>(image.cols);
+  view.height = static_cast<uint32_t>(image.rows);
+  view.stride = image.step[0];
+  view.size = (image.rows - 1) * image.step[0] + image.cols * image.elemSize();
+  view.format = format;
+  return view;
+}
+
+// Color frames (every format; packed and padded; from the caller's memory
+// and from the detector's input buffer; both conversions) must give exactly
+// the detections of the gray frame cv::cvtColor makes from them.
+void CheckColorFrames(cuda_tags::Detector &detector, const cv::Mat &gray) {
+  // A warm cast with uneven channels and a little noise, so every channel's
+  // weight matters.
+  std::vector<cv::Mat> planes = {gray * 0.61, gray * 0.83, gray * 1.0};
+  cv::Mat noise(gray.size(), CV_8UC1);
+  cv::randu(noise, 0, 6);
+  planes[0] += noise;
+  cv::Mat bgr, rgb, bgra, rgba, expected;
+  cv::merge(planes, bgr);
+  cv::cvtColor(bgr, rgb, cv::COLOR_BGR2RGB);
+  cv::cvtColor(bgr, bgra, cv::COLOR_BGR2BGRA);
+  cv::cvtColor(bgr, rgba, cv::COLOR_BGR2RGBA);
+  cv::cvtColor(bgr, expected, cv::COLOR_BGR2GRAY);
+  const std::vector<cuda_tags::Detection> reference =
+      detector.DetectGray(expected.data, expected.total());
+  EXPECT_TRUE(reference.size() == 3);
+
+  struct Case {
+    const cv::Mat *image;
+    cuda_tags::PixelFormat format;
+  };
+  const Case cases[] = {{&bgr, cuda_tags::PixelFormat::kBgr},
+                        {&rgb, cuda_tags::PixelFormat::kRgb},
+                        {&bgra, cuda_tags::PixelFormat::kBgra},
+                        {&rgba, cuda_tags::PixelFormat::kRgba}};
+  uint8_t *buffer = detector.InputBuffer();
+  EXPECT_TRUE(buffer != nullptr);
+  for (const auto conversion : {cuda_tags::ColorConversion::kWhileDetecting,
+                                cuda_tags::ColorConversion::kBeforeDetecting}) {
+    detector.SetColorConversion(conversion);
+    for (const Case &c : cases) {
+      // The caller's memory, packed and with padded rows.
+      EXPECT_TRUE(Same(detector.Detect(View(*c.image, c.format)), reference));
+      cv::Mat padded(c.image->rows, c.image->cols + 13, c.image->type());
+      cv::Mat inner = padded.colRange(0, c.image->cols);
+      c.image->copyTo(inner);
+      EXPECT_TRUE(Same(detector.Detect(View(inner, c.format)), reference));
+      // The input buffer, read in place: packed, and padded where that
+      // fits (the buffer holds width * height * 4 bytes).
+      const size_t row = c.image->cols * c.image->elemSize();
+      for (const size_t stride : {row, row + 40}) {
+        if ((c.image->rows - 1) * stride + row > detector.InputBufferSize()) {
+          continue;
+        }
+        for (int y = 0; y < c.image->rows; ++y) {
+          std::memcpy(buffer + y * stride, c.image->ptr(y), row);
+        }
+        cv::Mat in_buffer(c.image->rows, c.image->cols, c.image->type(),
+                          buffer, stride);
+        EXPECT_TRUE(
+            Same(detector.Detect(View(in_buffer, c.format)), reference));
+      }
+    }
+  }
+  detector.SetColorConversion(cuda_tags::ColorConversion::kBeforeDetecting);
+
+  // Gray in the input buffer, read in place.
+  std::memcpy(buffer, expected.data, expected.total());
+  EXPECT_TRUE(Same(detector.DetectGray(buffer, expected.total()), reference));
+}
+
 }  // namespace
 
 int Run(int argc, char **argv) {
@@ -111,6 +207,13 @@ int Run(int argc, char **argv) {
       rejected = true;
     }
     EXPECT_TRUE(rejected);
+
+    // Detections of the golden gray frame from the input buffer are
+    // identical to those from the caller's memory.
+    std::memcpy(detector.InputBuffer(), gray.data, gray.total());
+    EXPECT_TRUE(Same(detector.DetectGray(detector.InputBuffer(), gray.total()),
+                     detections));
+    CheckColorFrames(detector, gray);
   } else {
     detections = DetectCpu(gray);
     for (auto &detection : detections) {

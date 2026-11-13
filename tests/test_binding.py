@@ -157,6 +157,46 @@ class BindingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             detector.process(np.zeros((240, 320), np.uint8))
 
+    @unittest.skipIf(native is None or not native.cuda_available(), 'no CUDA')
+    def test_color_and_input_buffer_match_converting_first(self):
+        scene = read_scene(GOLDEN / 'tags_640x480.txt')
+        image = read_pgm(GOLDEN / 'tags_640x480.pgm')
+        fx, fy, cx, cy = scene['camera']
+        # A warm cast with uneven channels, so every weight matters.
+        rgb = np.dstack([image, (image * 0.83).astype(np.uint8),
+                         (image * 0.61).astype(np.uint8)])
+        rgb[..., 0] = np.minimum(rgb[..., 0].astype(np.int32) + np.arange(640) % 5, 255)
+
+        def key(results):
+            return [(r.id, r.corners, r.pose.translation) for r in results]
+
+        for conversion in ('while_detecting', 'before_detecting'):
+            detector = native.CudaTagsWrapper(
+                native.tag36h11, native.CameraMatrix(fx, cx, fy, cy),
+                native.DistCoeffs(), 2, 640, 480, tag_size_m=scene['tag_size'],
+                color_conversion=conversion)
+            self.assertEqual(detector.color_conversion, conversion)
+            reference = key(detector.process(native.to_gray(rgb, 'rgb')))
+            self.assertEqual(len(reference), 3)
+            self.assertEqual(key(detector.process(rgb, 'rgb')), reference)
+            self.assertEqual(key(detector.process(np.ascontiguousarray(rgb[..., ::-1]))),
+                             reference)
+            # Written into the detector's buffer: read in place.
+            buffer = detector.input_buffer(3)
+            self.assertEqual(buffer.shape, (480, 640, 3))
+            np.copyto(buffer, rgb)
+            self.assertEqual(key(detector.process(buffer, 'rgb')), reference)
+            gray_buffer = detector.input_buffer(1)
+            np.copyto(gray_buffer, native.to_gray(rgb, 'rgb'))
+            self.assertEqual(key(detector.process(gray_buffer)), reference)
+            # The view keeps the detector's memory alive.
+            del detector
+            buffer[:] = 0
+        with self.assertRaises(ValueError):
+            native.CudaTagsWrapper(
+                native.tag36h11, native.CameraMatrix(fx, cx, fy, cy),
+                native.DistCoeffs(), 1, 640, 480, color_conversion='sometimes')
+
 
 if __name__ == '__main__':
     sys.exit(unittest.main())

@@ -113,6 +113,39 @@ CT_API int32_t ct_detection_homography(const ct_detector *detector,
  * CUDA (where ct_create always fails). */
 CT_API int32_t ct_cuda_available(void);
 
+/* --- Added in version 1: color frames and zero-copy input --------------
+ * Additive only; ct_abi_version() is still 1. */
+
+/* Pixel formats of ct_detect_image: 8 bits per channel, interleaved. */
+#define CT_FORMAT_GRAY 0
+#define CT_FORMAT_BGR 1
+#define CT_FORMAT_RGB 2
+#define CT_FORMAT_BGRA 3
+#define CT_FORMAT_RGBA 4
+
+/* Detects tags in a gray or color frame of the detector's size whose rows
+ * start stride bytes apart (length >= (height - 1) * stride + width *
+ * channels). Color is converted with OpenCV's BT.601 weights, so results
+ * match converting with cv::cvtColor first. Returns the number of
+ * detections (read them with ct_detection_at) or -1. */
+CT_API int32_t ct_detect_image(ct_detector *detector, const uint8_t *pixels,
+                               size_t length, size_t stride, int32_t format);
+
+/* The detector's pinned, GPU-mapped input buffer (width * height * 4 bytes;
+ * stored in *size when size is not NULL), valid until ct_destroy. A frame
+ * written here and passed to ct_detect or ct_detect_image (as a pointer
+ * into this buffer) is read by the GPU in place, with no copy. NULL on
+ * error. */
+CT_API uint8_t *ct_input_buffer(ct_detector *detector, size_t *size);
+
+/* How color frames in the input buffer become gray (see ColorConversion
+ * in detector.hpp); both give identical detections. */
+#define CT_COLOR_WHILE_DETECTING 0  /* convert only the pixels read */
+#define CT_COLOR_BEFORE_DETECTING 1 /* default: GPU converts the frame first */
+/* 0 on success, -1 for an unknown value. */
+CT_API int32_t ct_set_color_conversion(ct_detector *detector,
+                                       int32_t conversion);
+
 #ifdef __cplusplus
 }
 #endif

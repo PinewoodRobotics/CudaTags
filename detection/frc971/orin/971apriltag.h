@@ -1,6 +1,7 @@
 #pragma once
 
 #include "apriltag/apriltag.h"
+#include "apriltag_971/ct_pixel_layout.h"
 
 #include "frc971/orin/cuda.h"
 #include "frc971/orin/gpu_image.h"
@@ -89,8 +90,28 @@ public:
   // Detects april tags in the provided image.
   void DetectColor(const uint8_t *image);
   void DetectGray(uint8_t *image);
-  void DetectGrayHost(uint8_t *image);
-  void DetectGray2(uint8_t *image);
+  // copy_back = false (CudaTags) decodes from image instead of a copy of the
+  // GPU's gray image; they hold the same pixels.
+  void DetectGrayHost(uint8_t *image, bool copy_back = true);
+  void DetectGray2(const uint8_t *image, size_t stride = 0,
+                   const ct_pixel_layout *layout = nullptr);
+
+  // CudaTags additions. *_device pointers are where the GPU reads (or
+  // writes) a buffer: device memory or GPU-mapped pinned host memory.
+  // A gray frame read in place; host_image holds the same pixels.
+  void DetectGrayMapped(const uint8_t *device_image, const uint8_t *host_image);
+  // A packed color frame (stride in bytes), converted to gray in full before
+  // detection. The GPU writes the gray frame to gray_host_device too, which
+  // must map gray_host, a width * height buffer the CPU decode reads.
+  void DetectColorConvertFirst(const uint8_t *color_device, size_t stride,
+                               const ct_pixel_layout &layout,
+                               uint8_t *gray_host_device,
+                               const uint8_t *gray_host);
+  // A packed color frame converted only where it is read: the GPU converts
+  // the pixels it decimates, the CPU decode the pixels it samples from
+  // color_host (the same frame as color_device).
+  void DetectColorFused(const uint8_t *color_device, const uint8_t *color_host,
+                        size_t stride, const ct_pixel_layout &layout);
 
   const std::vector<QuadCorners> &FitQuads() const;
 
@@ -208,7 +229,8 @@ private:
 
   void AdjustPixelCenters();
 
-  void DecodeTags(uint8_t *image);
+  void DecodeTags(const uint8_t *image, size_t stride,
+                  const ct_pixel_layout *layout);
 
   static void QuadDecodeTask(void *_u);
 

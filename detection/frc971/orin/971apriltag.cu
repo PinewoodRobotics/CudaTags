@@ -773,7 +773,7 @@ void GpuDetector::DetectColor(const uint8_t *image) {
   DetectGray2(gray_image_host_.get());
 }
 
-void GpuDetector::DetectGrayHost(uint8_t *image) {
+void GpuDetector::DetectGrayHost(uint8_t *image, bool copy_back) {
   start_time = std::chrono::steady_clock::now();
   start_.Record(&stream_);
   CHECK(image);
@@ -797,11 +797,88 @@ void GpuDetector::DetectGrayHost(uint8_t *image) {
       after_threshold_.Record(&stream_);
   } else CHECK(decimate_ == 2 || decimate_ == 1);
 
+  if (!copy_back) {
+    after_memcpy_gray_.Record(&stream_);
+    DetectGray2(image);
+    return;
+  }
   gray_image_device_.MemcpyAsyncTo(&gray_image_host_, &stream_);
 
   after_memcpy_gray_.Record(&stream_);
 
   DetectGray2(gray_image_host_.get());
+}
+
+void GpuDetector::DetectGrayMapped(const uint8_t *device_image,
+                                   const uint8_t *host_image) {
+  start_time = std::chrono::steady_clock::now();
+  start_.Record(&stream_);
+  after_image_memcpy_to_device_.Record(&stream_);
+  if (decimate_ == 2) {
+    CudaDecimate(device_image, decimated_image_device_.get(),
+                 unfiltered_minmax_image_device_.get(),
+                 minmax_image_device_.get(), thresholded_image_device_.get(),
+                 width_, height_, tag_detector_->qtp.min_white_black_diff,
+                 &stream_);
+  } else {
+    CHECK(decimate_ == 1);
+    CudaNoDecimate(device_image, decimated_image_device_.get(),
+                   unfiltered_minmax_image_device_.get(),
+                   minmax_image_device_.get(), thresholded_image_device_.get(),
+                   width_, height_, tag_detector_->qtp.min_white_black_diff,
+                   &stream_);
+  }
+  after_threshold_.Record(&stream_);
+  after_memcpy_gray_.Record(&stream_);
+  DetectGray2(host_image);
+}
+
+void GpuDetector::DetectColorConvertFirst(const uint8_t *color_device,
+                                          size_t stride,
+                                          const ct_pixel_layout &layout,
+                                          uint8_t *gray_host_device,
+                                          const uint8_t *gray_host) {
+  start_time = std::chrono::steady_clock::now();
+  start_.Record(&stream_);
+  CudaColorToGray(color_device, stride, layout, gray_image_device_.get(),
+                  gray_host_device, width_, height_, &stream_);
+  after_image_memcpy_to_device_.Record(&stream_);
+  if (decimate_ == 2) {
+    CudaDecimate(gray_image_device_.get(), decimated_image_device_.get(),
+                 unfiltered_minmax_image_device_.get(),
+                 minmax_image_device_.get(), thresholded_image_device_.get(),
+                 width_, height_, tag_detector_->qtp.min_white_black_diff,
+                 &stream_);
+  } else {
+    CHECK(decimate_ == 1);
+    CudaNoDecimate(gray_image_device_.get(), decimated_image_device_.get(),
+                   unfiltered_minmax_image_device_.get(),
+                   minmax_image_device_.get(), thresholded_image_device_.get(),
+                   width_, height_, tag_detector_->qtp.min_white_black_diff,
+                   &stream_);
+  }
+  after_threshold_.Record(&stream_);
+  after_memcpy_gray_.Record(&stream_);
+  // DetectGray2 synchronizes the stream before decoding, so the CPU sees the
+  // finished gray frame.
+  DetectGray2(gray_host);
+}
+
+void GpuDetector::DetectColorFused(const uint8_t *color_device,
+                                   const uint8_t *color_host, size_t stride,
+                                   const ct_pixel_layout &layout) {
+  start_time = std::chrono::steady_clock::now();
+  start_.Record(&stream_);
+  after_image_memcpy_to_device_.Record(&stream_);
+  CudaColorDecimate(color_device, stride, layout, decimate_,
+                    decimated_image_device_.get(),
+                    unfiltered_minmax_image_device_.get(),
+                    minmax_image_device_.get(), thresholded_image_device_.get(),
+                    width_, height_, tag_detector_->qtp.min_white_black_diff,
+                    &stream_);
+  after_threshold_.Record(&stream_);
+  after_memcpy_gray_.Record(&stream_);
+  DetectGray2(color_host, stride, &layout);
 }
 
 void GpuDetector::DetectGray(uint8_t *image) {
@@ -836,7 +913,8 @@ void GpuDetector::DetectGray(uint8_t *image) {
 }
 
 
-void GpuDetector::DetectGray2(uint8_t *image) {
+void GpuDetector::DetectGray2(const uint8_t *image, size_t stride,
+                              const ct_pixel_layout *layout) {
   union_markers_size_device_.MemsetAsync(0u, &stream_);
   after_memset_.Record(&stream_);
 
@@ -1197,7 +1275,7 @@ void GpuDetector::DetectGray2(uint8_t *image) {
   UpdateFitQuads();
   AdjustPixelCenters();
 
-  DecodeTags(image);
+  DecodeTags(image, stride == 0 ? width_ : stride, layout);
 
   const std::chrono::steady_clock::time_point end_time =
       std::chrono::steady_clock::now();
