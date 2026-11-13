@@ -3,9 +3,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Jetson Orin (JetPack 6) by default; override with -DCMAKE_CUDA_ARCHITECTURES.
+# Jetson Orin (JetPack 6) by default; override with -DCMAKE_CUDA_ARCHITECTURES
+# or, for builds CMake is run for (pip, cargo), the CMAKE_CUDA_ARCHITECTURES
+# or CUDAARCHS environment variable.
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 87)
+  if(DEFINED ENV{CMAKE_CUDA_ARCHITECTURES})
+    set(CMAKE_CUDA_ARCHITECTURES "$ENV{CMAKE_CUDA_ARCHITECTURES}")
+  elseif(DEFINED ENV{CUDAARCHS})
+    set(CMAKE_CUDA_ARCHITECTURES "$ENV{CUDAARCHS}")
+  else()
+    set(CMAKE_CUDA_ARCHITECTURES 87)
+  endif()
 endif()
 # CMake < 3.25 does not know nvcc's C++20 flag.
 if(NOT DEFINED CMAKE_CUDA20_STANDARD_COMPILE_OPTION)
@@ -60,8 +68,17 @@ add_subdirectory(src/main/cpp)
 
 if(CUDATAGS_BUILD_PYTHON)
   # pybind11 finds Python itself (honouring PYTHON_EXECUTABLE, as
-  # scikit-build passes it).
-  find_package(pybind11 CONFIG REQUIRED)
+  # scikit-build passes it). Prefer the pybind11 installed for that Python
+  # (pip's build environment) over a system copy such as Ubuntu's
+  # pybind11-dev, which may be too old for it.
+  set(_cudatags_pybind11_hint "")
+  if(PYTHON_EXECUTABLE)
+    execute_process(COMMAND "${PYTHON_EXECUTABLE}" -m pybind11 --cmakedir
+                    OUTPUT_VARIABLE _cudatags_pybind11_hint
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+  endif()
+  find_package(pybind11 CONFIG REQUIRED HINTS ${_cudatags_pybind11_hint})
   pybind11_add_module(cuda_tags src/main/python/cpp/binding.cpp)
   target_link_libraries(cuda_tags PRIVATE cuda_tags_core)
   set_target_properties(cuda_tags PROPERTIES OUTPUT_NAME "cuda_tags")
@@ -72,7 +89,8 @@ endif()
 
 if(CUDATAGS_BUILD_JAVA)
   find_package(JNI REQUIRED)
-  find_package(Java REQUIRED)
+  # CudaTags.java uses records (Java 16+).
+  find_package(Java 16 REQUIRED COMPONENTS Development)
   include(UseJava)
   add_library(cuda_tags_jni SHARED src/main/java/native/CudaTagsJNI.cc)
   target_include_directories(cuda_tags_jni PRIVATE ${JNI_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})

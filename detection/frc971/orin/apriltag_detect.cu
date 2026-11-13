@@ -615,6 +615,10 @@ void GpuDetector::QuadDecodeTask(void *_u) {
 
     quad_decode_index(td, &quad_original, im, task->im_samples,
                       task->detections);
+    // quad_decode_index computes the homographies; upstream frees them with
+    // the quad list, which this detector does not use.
+    matd_destroy(quad_original.H);
+    matd_destroy(quad_original.Hinv);
   }
 }
 
