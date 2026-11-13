@@ -1,4 +1,5 @@
 // Detector backed by Team 971's GPU detector (frc971/orin).
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -22,6 +23,52 @@ void ThrowOnCudaError(const char *what) {
   }
 }
 
+// Byte offsets of R, G and B, and OpenCV's BT.601 weights (bit-exact with
+// cv::cvtColor; see ct_pixel_layout.h).
+ct_pixel_layout LayoutFor(PixelFormat format) {
+  ct_pixel_layout layout{};
+  layout.channels = Channels(format);
+  const bool rgb_order =
+      format == PixelFormat::kRgb || format == PixelFormat::kRgba;
+  layout.offset[0] = rgb_order ? 0 : 2;
+  layout.offset[1] = 1;
+  layout.offset[2] = rgb_order ? 2 : 0;
+  layout.weight[0] = 9798;
+  layout.weight[1] = 19235;
+  layout.weight[2] = 3735;
+  return layout;
+}
+
+// A pinned host buffer the GPU reads and writes in place.
+struct MappedBuffer {
+  uint8_t *host = nullptr;
+  uint8_t *device = nullptr;
+  size_t size = 0;
+
+  void Allocate(size_t bytes) {
+    void *memory = nullptr;
+    if (cudaHostAlloc(&memory, bytes, cudaHostAllocMapped) != cudaSuccess) {
+      cudaGetLastError();
+      throw std::runtime_error("could not allocate a pinned buffer");
+    }
+    host = static_cast<uint8_t *>(memory);
+    size = bytes;
+    void *mapped = nullptr;
+    if (cudaHostGetDevicePointer(&mapped, memory, 0) != cudaSuccess) {
+      cudaGetLastError();
+      throw std::runtime_error("could not map a pinned buffer for the GPU");
+    }
+    device = static_cast<uint8_t *>(mapped);
+  }
+  bool Contains(const uint8_t *data, size_t bytes) const {
+    return host != nullptr && data >= host && bytes <= size &&
+           static_cast<size_t>(data - host) <= size - bytes;
+  }
+  ~MappedBuffer() {
+    if (host != nullptr) cudaFreeHost(host);
+  }
+};
+
 }  // namespace
 
 bool CudaAvailable() { return true; }
@@ -35,6 +82,10 @@ struct Detector::Impl {
   frc971::apriltag::GpuDetector *gpu = nullptr;
   std::vector<uint8_t> gray;
   std::vector<Detection> detections;
+  // Pinned host memory the GPU reads and writes in place (zero-copy).
+  MappedBuffer input;      // width * height * 4: frames the caller writes
+  MappedBuffer gray_host;  // width * height: gray frames the CPU decode reads
+  ct_pixel_layout layout{};
 
   ~Impl() {
     // The GPU detector holds a pointer to tags, which holds the family.
@@ -97,9 +148,23 @@ Detector::Detector(const Camera &camera, const Distortion &distortion,
       static_cast<size_t>(options.decimate));
   ThrowOnCudaError("allocating the GPU detector");
   impl.gray.reserve(static_cast<size_t>(options.width) * options.height);
+  const size_t pixels = static_cast<size_t>(options.width) * options.height;
+  impl.input.Allocate(pixels * 4);
+  impl.gray_host.Allocate(pixels);
 }
 
 Detector::~Detector() = default;
+
+uint8_t *Detector::InputBuffer() { return impl_->input.host; }
+size_t Detector::InputBufferSize() const { return impl_->input.size; }
+
+void Detector::SetColorConversion(ColorConversion conversion) {
+  if (conversion != ColorConversion::kWhileDetecting &&
+      conversion != ColorConversion::kBeforeDetecting) {
+    throw std::invalid_argument("unknown color conversion");
+  }
+  impl_->options.color_conversion = conversion;
+}
 
 const Options &Detector::options() const { return impl_->options; }
 const Camera &Detector::camera() const { return impl_->camera; }
@@ -118,13 +183,43 @@ const std::vector<Detection> &Detector::Detect(const ImageView &image) {
         std::to_string(impl.options.width) + "x" +
         std::to_string(impl.options.height));
   }
-  const size_t pixels = static_cast<size_t>(image.width) * image.height;
-  const uint8_t *gray = image.data;
-  if (image.format != PixelFormat::kGray || image.stride != image.width) {
-    ConvertToGray(image, &impl.gray);
-    gray = impl.gray.data();
+  impl.detections.clear();
+  ThrowOnCudaError("before detection");
+  if (impl.input.Contains(image.data, image.size)) {
+    // The frame is in the input buffer: the GPU reads it in place.
+    const uint8_t *device =
+        impl.input.device + (image.data - impl.input.host);
+    if (image.format == PixelFormat::kGray) {
+      if (image.stride == image.width) {
+        impl.gpu->DetectGrayMapped(device, image.data);
+      } else {
+        ConvertToGray(image, impl.gray_host.host);
+        impl.gpu->DetectGrayMapped(impl.gray_host.device, impl.gray_host.host);
+      }
+    } else {
+      impl.layout = LayoutFor(image.format);
+      if (impl.options.color_conversion == ColorConversion::kBeforeDetecting) {
+        impl.gpu->DetectColorConvertFirst(device, image.stride, impl.layout,
+                                          impl.gray_host.device,
+                                          impl.gray_host.host);
+      } else {
+        impl.gpu->DetectColorFused(device, image.data, image.stride,
+                                   impl.layout);
+      }
+    }
+  } else if (image.format == PixelFormat::kGray &&
+             image.stride == image.width) {
+    impl.gpu->DetectGrayHost(const_cast<uint8_t *>(image.data),
+                             /*copy_back=*/false);
+  } else {
+    // Any other frame: converting (or packing) it on the CPU straight into
+    // GPU-visible memory beats copying 3-4 bytes per pixel there for the GPU
+    // to convert.
+    ConvertToGray(image, impl.gray_host.host);
+    impl.gpu->DetectGrayMapped(impl.gray_host.device, impl.gray_host.host);
   }
-  return DetectGray(gray, pixels);
+  ThrowOnCudaError("detection");
+  return CollectDetections();
 }
 
 const std::vector<Detection> &Detector::DetectGray(const uint8_t *pixels,
@@ -141,13 +236,18 @@ const std::vector<Detection> &Detector::DetectGray(const uint8_t *pixels,
         std::to_string(impl.options.height) + " (" + std::to_string(expected) +
         " bytes)");
   }
-  impl.detections.clear();
-  ThrowOnCudaError("before detection");
-  // DetectGrayHost copies the image to the GPU and reads it on the CPU for
-  // decoding; it does not write to it.
-  impl.gpu->DetectGrayHost(const_cast<uint8_t *>(pixels));
-  ThrowOnCudaError("detection");
+  ImageView view;
+  view.data = pixels;
+  view.size = length;
+  view.width = impl.options.width;
+  view.height = impl.options.height;
+  view.stride = impl.options.width;
+  view.format = PixelFormat::kGray;
+  return Detect(view);
+}
 
+const std::vector<Detection> &Detector::CollectDetections() {
+  Impl &impl = *impl_;
   const zarray_t *found = impl.gpu->Detections();
   impl.detections.reserve(zarray_size(found));
   for (int i = 0; i < zarray_size(found); ++i) {

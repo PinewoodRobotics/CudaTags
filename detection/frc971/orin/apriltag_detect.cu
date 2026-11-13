@@ -16,6 +16,7 @@
 */
 #include <vector>
 
+#include "apriltag_971/ct_pixel_layout.h"
 #include "frc971/orin/971apriltag.h"
 #include "frc971/orin/labeling_allegretti_2019_BKE.h"
 #include "frc971/orin/threshold.h"
@@ -29,6 +30,10 @@ extern "C" {
 void quad_decode_index(apriltag_detector_t *td, struct quad *quad_original,
                        image_u8_t *im, image_u8_t *im_samples,
                        zarray_t *detections);
+void quad_decode_index_layout(apriltag_detector_t *td,
+                              struct quad *quad_original, image_u8_t *im,
+                              const ct_pixel_layout *layout,
+                              image_u8_t *im_samples, zarray_t *detections);
 
 void reconcile_detections(zarray_t *detections, zarray_t *poly0,
                           zarray_t *poly1);
@@ -295,6 +300,8 @@ struct QuadDecodeTaskStruct {
   apriltag_detector_t *td;
 
   image_u8_t *im;
+  // Color layout of im (CudaTags), or null for gray.
+  const ct_pixel_layout *layout;
   zarray_t *detections;
 
   image_u8_t *im_samples;
@@ -407,6 +414,7 @@ bool GpuDetector::UnDistort(double *u, double *v,
 
 // Mostly stolen from aprilrobotics, but modified to implement the dewarp.
 void RefineEdges(apriltag_detector_t *td, image_u8_t *im_orig,
+                 const ct_pixel_layout *layout,
                  struct quad *quad, CameraMatrix *camera_matrix,
                  DistCoeffs *distortion_coefficients) {
   double lines[4][4];  // for each line, [Ex Ey nx ny]
@@ -479,8 +487,8 @@ void RefineEdges(apriltag_detector_t *td, image_u8_t *im_orig,
         if (x2 < 0 || x2 >= im_orig->width || y2 < 0 || y2 >= im_orig->height)
           continue;
 
-        int g1 = im_orig->buf[y1 * im_orig->stride + x1];
-        int g2 = im_orig->buf[y2 * im_orig->stride + x2];
+        int g1 = ct_pixel_gray(im_orig->buf + y1 * im_orig->stride, x1, layout);
+        int g2 = ct_pixel_gray(im_orig->buf + y2 * im_orig->stride, x2, layout);
 
         if (g1 < g2)  // reject points whose gradient is "backwards". They can
                       // only hurt us.
@@ -581,11 +589,11 @@ void GpuDetector::QuadDecodeTask(void *_u) {
     quad_original.Hinv = nullptr;
 
     if (td->refine_edges) {
-      RefineEdges(td, im, &quad_original, task->camera_matrix,
+      RefineEdges(td, im, task->layout, &quad_original, task->camera_matrix,
                   task->distortion_coefficients);
     }
 
-    if (td->debug) {
+    if (td->debug && task->layout == nullptr) {
       image_u8_t *im_quads = image_u8_copy(im);
       image_u8_darken(im_quads);
       image_u8_darken(im_quads);
@@ -613,12 +621,17 @@ void GpuDetector::QuadDecodeTask(void *_u) {
           std::string("/tmp/quad" + std::to_string(quadidx) + ".pnm").c_str());
     }
 
-    quad_decode_index(td, &quad_original, im, task->im_samples,
-                      task->detections);
+    quad_decode_index_layout(td, &quad_original, im, task->layout,
+                             task->im_samples, task->detections);
+    // quad_decode_index computes the homographies; upstream frees them with
+    // the quad list, which this detector does not use.
+    matd_destroy(quad_original.H);
+    matd_destroy(quad_original.Hinv);
   }
 }
 
-void GpuDetector::DecodeTags(uint8_t * image) {
+void GpuDetector::DecodeTags(const uint8_t *image, size_t stride,
+                             const ct_pixel_layout *layout) {
   size_t chunksize =
       1 + quad_corners_host_.size() /
               (APRILTAG_TASKS_PER_THREAD_TARGET * tag_detector_->nthreads);
@@ -637,9 +650,9 @@ void GpuDetector::DecodeTags(uint8_t * image) {
   image_u8_t im_orig{
       .width = static_cast<int32_t>(width_),
       .height = static_cast<int32_t>(height_),
-      .stride = static_cast<int32_t>(width_),
+      .stride = static_cast<int32_t>(stride),
       //.buf = gray_image_host_.get(),
-      .buf = image,
+      .buf = const_cast<uint8_t *>(image),
   };
 
   int ntasks = 0;
@@ -649,6 +662,7 @@ void GpuDetector::DecodeTags(uint8_t * image) {
     tasks[ntasks].quads = quad_corners_host_.data();
     tasks[ntasks].td = tag_detector_;
     tasks[ntasks].im = &im_orig;
+    tasks[ntasks].layout = layout;
     tasks[ntasks].detections = detections_;
     tasks[ntasks].camera_matrix = &camera_matrix_;
     tasks[ntasks].distortion_coefficients = &distortion_coefficients_;

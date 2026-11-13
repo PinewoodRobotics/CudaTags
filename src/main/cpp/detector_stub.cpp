@@ -29,6 +29,11 @@ Detector::Detector(const Camera &camera, const Distortion &distortion,
 
 Detector::~Detector() = default;
 
+uint8_t *Detector::InputBuffer() { return nullptr; }
+size_t Detector::InputBufferSize() const { return 0; }
+void Detector::SetColorConversion(ColorConversion conversion) {
+  impl_->options.color_conversion = conversion;
+}
 const Options &Detector::options() const { return impl_->options; }
 const Camera &Detector::camera() const { return impl_->camera; }
 const Distortion &Detector::distortion() const { return impl_->distortion; }

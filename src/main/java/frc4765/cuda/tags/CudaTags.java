@@ -17,6 +17,16 @@ public final class CudaTags implements AutoCloseable {
   /** Doubles per detection in the array returned by {@code nativeDetect}. */
   private static final int STRIDE = 35;
 
+  /**
+   * How color frames become gray; both give the same detections as converting with OpenCV first.
+   */
+  public enum ColorConversion {
+    /** The GPU converts the whole frame first (default; as fast or faster in most cases). */
+    BEFORE_DETECTING,
+    /** Convert only the pixels the detector reads; ties on small busy frames, slower on large. */
+    WHILE_DETECTING,
+  }
+
   /** Camera-from-tag pose; tag frame x right, y down, z into the tag. */
   public record Pose(double[] rotationRowMajor, double[] translationMeters) {}
 
@@ -72,6 +82,12 @@ public final class CudaTags implements AutoCloseable {
     return height;
   }
 
+  /** Sets how color frames become gray (default {@link ColorConversion#BEFORE_DETECTING}). */
+  public synchronized void setColorConversion(ColorConversion conversion) {
+    Objects.requireNonNull(conversion, "conversion");
+    nativeSetColorConversion(checkedHandle(), conversion == ColorConversion.BEFORE_DETECTING);
+  }
+
   /** Detects tags in a contiguous mono8 image of {@code width * height} bytes. */
   public synchronized Detection[] detect(byte[] gray) {
     return detect(gray, width, 1);
@@ -84,8 +100,20 @@ public final class CudaTags implements AutoCloseable {
    * @param channels 1 (gray), 3 (BGR) or 4 (BGRA)
    */
   public synchronized Detection[] detect(byte[] pixels, int stride, int channels) {
+    return detect(pixels, stride, channels, false);
+  }
+
+  /**
+   * Detects tags in a possibly padded 8-bit image. The frame is copied into the detector's pinned
+   * buffer, which the GPU reads in place and converts to gray (see {@link #setColorConversion}).
+   *
+   * @param stride bytes per row
+   * @param channels 1 (gray), 3 or 4
+   * @param rgb true for RGB/RGBA channel order, false for BGR/BGRA
+   */
+  public synchronized Detection[] detect(byte[] pixels, int stride, int channels, boolean rgb) {
     Objects.requireNonNull(pixels, "pixels");
-    return unpack(nativeDetect(checkedHandle(), pixels, stride, channels));
+    return unpack(nativeDetect(checkedHandle(), pixels, stride, channels, rgb));
   }
 
   /** Detects tags in an OpenCV {@code Mat} (CV_8UC1/3/4) given its native address. */
@@ -152,7 +180,9 @@ public final class CudaTags implements AutoCloseable {
       double tagSizeMeters);
 
   private static native double[] nativeDetect(
-      long handle, byte[] pixels, int stride, int channels);
+      long handle, byte[] pixels, int stride, int channels, boolean rgb);
+
+  private static native void nativeSetColorConversion(long handle, boolean beforeDetecting);
 
   private static native double[] nativeDetectMat(long handle, long matAddress);
 

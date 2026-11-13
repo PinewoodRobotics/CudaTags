@@ -53,6 +53,18 @@ cuda_tags::PixelFormat FormatFor(int channels, const std::string &order) {
 // Describes a uint8 array as an ImageView, without copying when its rows
 // are padded but its pixels are packed; otherwise through a contiguous
 // copy held in `holder`. Needs the GIL.
+cuda_tags::ColorConversion ColorConversionFor(const std::string &name) {
+  if (name == "while_detecting") {
+    return cuda_tags::ColorConversion::kWhileDetecting;
+  }
+  if (name == "before_detecting") {
+    return cuda_tags::ColorConversion::kBeforeDetecting;
+  }
+  throw py::value_error(
+      "color_conversion must be 'while_detecting' or 'before_detecting', "
+      "got '" + name + "'");
+}
+
 cuda_tags::ImageView ViewOf(const py::array &input, const std::string &order,
                             py::array *holder) {
   if (!input.dtype().is(py::dtype::of<uint8_t>())) {
@@ -112,7 +124,8 @@ class PyDetector {
   PyDetector(TagType tag_type, const CameraMatrix &camera,
              const DistCoeffs &distortion, int threads, int width, int height,
              double tag_size_m, int decimate, int min_white_black_diff,
-             int max_hamming, bool refine_edges, double decode_sharpening) {
+             int max_hamming, bool refine_edges, double decode_sharpening,
+             const std::string &color_conversion) {
     if (tag_type != TagType::tag36h11) {
       throw py::value_error("only tag36h11 is supported");
     }
@@ -129,6 +142,7 @@ class PyDetector {
     options.refine_edges = refine_edges;
     options.decode_sharpening = decode_sharpening;
     options.tag_size_m = tag_size_m;
+    options.color_conversion = ColorConversionFor(color_conversion);
     detector_ = std::make_unique<cuda_tags::Detector>(
         cuda_tags::Camera{camera.fx, camera.fy, camera.cx, camera.cy},
         cuda_tags::Distortion{distortion.k1, distortion.k2, distortion.p1,
@@ -144,6 +158,33 @@ class PyDetector {
     // alive), so other Python threads run meanwhile.
     py::gil_scoped_release release;
     return detector_->Detect(view);
+  }
+
+  // A numpy view of the detector's pinned, GPU-mapped input buffer, shaped
+  // for `channels`; frames written into it are detected without a copy.
+  // `self` is the view's base, so the buffer outlives every view of it.
+  py::array InputBuffer(const py::object &self, int channels) {
+    if (channels != 1 && channels != 3 && channels != 4) {
+      throw py::value_error("channels must be 1, 3 or 4");
+    }
+    uint8_t *data = detector_->InputBuffer();
+    if (data == nullptr) {
+      throw std::runtime_error("this build has no GPU input buffer");
+    }
+    const py::ssize_t h = height(), w = width(), c = channels;
+    if (channels == 1) {
+      return py::array(py::dtype::of<uint8_t>(), {h, w}, {w, py::ssize_t{1}},
+                       data, self);
+    }
+    return py::array(py::dtype::of<uint8_t>(), {h, w, c},
+                     {w * c, c, py::ssize_t{1}}, data, self);
+  }
+
+  std::string color_conversion() const {
+    return detector_->options().color_conversion ==
+                   cuda_tags::ColorConversion::kBeforeDetecting
+               ? "before_detecting"
+               : "while_detecting";
   }
 
   uint32_t width() const { return detector_->options().width; }
@@ -220,16 +261,29 @@ PYBIND11_MODULE(cuda_tags, m) {
 
   py::class_<PyDetector>(m, "CudaTagsWrapper")
       .def(py::init<TagType, CameraMatrix, DistCoeffs, int, int, int, double,
-                    int, int, int, bool, double>(),
+                    int, int, int, bool, double, std::string>(),
            py::arg("tagType"), py::arg("camMatrix"), py::arg("camDistCoeffs"),
            py::arg("nthreads"), py::arg("imgWidth"), py::arg("imgHeight"),
            py::kw_only(), py::arg("tag_size_m") = 0.0,
            py::arg("decimate") = 2, py::arg("min_white_black_diff") = 5,
            py::arg("max_hamming") = 1, py::arg("refine_edges") = true,
-           py::arg("decode_sharpening") = 0.25)
+           py::arg("decode_sharpening") = 0.25,
+           py::arg("color_conversion") = "before_detecting")
       .def_property_readonly("width", &PyDetector::width)
       .def_property_readonly("height", &PyDetector::height)
       .def_property_readonly("tag_size_m", &PyDetector::tag_size_m)
+      .def_property_readonly("color_conversion",
+                             &PyDetector::color_conversion)
+      .def(
+          "input_buffer",
+          [](const py::object &self, int channels) {
+            return self.cast<PyDetector &>().InputBuffer(self, channels);
+          },
+          py::arg("channels") = 3,
+          "A (height, width[, channels]) uint8 view of the detector's "
+          "pinned input buffer. Write a frame into it (e.g. with "
+          "np.copyto or cv2.cvtColor(..., dst=...)) and pass the view to "
+          "process(): the GPU reads it in place, without a copy.")
       .def("process", &PyDetector::Process, py::arg("image"),
            py::arg("color_order") = "bgr",
            "Detect tags in a uint8 image of shape (height, width) or "

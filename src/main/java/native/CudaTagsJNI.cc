@@ -36,14 +36,14 @@ cuda_tags::Detector *FromHandle(jlong handle) {
   return reinterpret_cast<cuda_tags::Detector *>(static_cast<intptr_t>(handle));
 }
 
-cuda_tags::PixelFormat FormatFor(int channels) {
+cuda_tags::PixelFormat FormatFor(int channels, bool rgb = false) {
   switch (channels) {
     case 1:
       return cuda_tags::PixelFormat::kGray;
     case 3:
-      return cuda_tags::PixelFormat::kBgr;
+      return rgb ? cuda_tags::PixelFormat::kRgb : cuda_tags::PixelFormat::kBgr;
     case 4:
-      return cuda_tags::PixelFormat::kBgra;
+      return rgb ? cuda_tags::PixelFormat::kRgba : cuda_tags::PixelFormat::kBgra;
   }
   throw std::invalid_argument("channels must be 1, 3 or 4");
 }
@@ -117,28 +117,48 @@ JNIEXPORT jlong JNICALL Java_frc4765_cuda_tags_CudaTags_nativeCreate(
 
 JNIEXPORT jdoubleArray JNICALL Java_frc4765_cuda_tags_CudaTags_nativeDetect(
     JNIEnv *env, jclass, jlong handle, jbyteArray pixels, jint stride,
-    jint channels) {
+    jint channels, jboolean rgb) {
   try {
     cuda_tags::Detector *detector = FromHandle(handle);
     const cuda_tags::Options &options = detector->options();
     if (stride <= 0) throw std::invalid_argument("stride must be positive");
     const jsize length = env->GetArrayLength(pixels);
-    // Copy out of the Java heap; never pin it across GPU work.
-    std::vector<uint8_t> buffer(static_cast<size_t>(length));
+    // Copy out of the Java heap (never pin it across GPU work), straight
+    // into the detector's pinned input buffer when it fits, so the GPU then
+    // reads the frame in place.
+    std::vector<uint8_t> fallback;
+    uint8_t *data = detector->InputBuffer();
+    if (data == nullptr ||
+        static_cast<size_t>(length) > detector->InputBufferSize()) {
+      fallback.resize(static_cast<size_t>(length));
+      data = fallback.data();
+    }
     env->GetByteArrayRegion(pixels, 0, length,
-                            reinterpret_cast<jbyte *>(buffer.data()));
+                            reinterpret_cast<jbyte *>(data));
     cuda_tags::ImageView view;
-    view.data = buffer.data();
-    view.size = buffer.size();
+    view.data = data;
+    view.size = static_cast<size_t>(length);
     view.width = options.width;
     view.height = options.height;
     view.stride = static_cast<size_t>(stride);
-    view.format = FormatFor(channels);
+    view.format = FormatFor(channels, rgb == JNI_TRUE);
     return Pack(env, detector->Detect(view));
   } catch (...) {
     ThrowJava(env);
   }
   return nullptr;
+}
+
+JNIEXPORT void JNICALL Java_frc4765_cuda_tags_CudaTags_nativeSetColorConversion(
+    JNIEnv *env, jclass, jlong handle, jboolean before_detecting) {
+  try {
+    FromHandle(handle)->SetColorConversion(
+        before_detecting == JNI_TRUE
+            ? cuda_tags::ColorConversion::kBeforeDetecting
+            : cuda_tags::ColorConversion::kWhileDetecting);
+  } catch (...) {
+    ThrowJava(env);
+  }
 }
 
 JNIEXPORT jdoubleArray JNICALL Java_frc4765_cuda_tags_CudaTags_nativeDetectMat(

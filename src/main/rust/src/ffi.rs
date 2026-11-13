@@ -6,6 +6,9 @@ use std::ffi::c_char;
 
 pub const ABI_VERSION: u32 = 1;
 
+pub const CT_COLOR_WHILE_DETECTING: i32 = 0;
+pub const CT_COLOR_BEFORE_DETECTING: i32 = 1;
+
 #[repr(C)]
 pub struct ct_detector {
     _private: [u8; 0],
@@ -76,4 +79,13 @@ unsafe extern "C" {
         index: usize,
         out: *mut f64,
     ) -> i32;
+    pub fn ct_detect_image(
+        detector: *mut ct_detector,
+        pixels: *const u8,
+        length: usize,
+        stride: usize,
+        format: i32,
+    ) -> i32;
+    pub fn ct_input_buffer(detector: *mut ct_detector, size: *mut usize) -> *mut u8;
+    pub fn ct_set_color_conversion(detector: *mut ct_detector, conversion: i32) -> i32;
 }

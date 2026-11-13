@@ -1,7 +1,9 @@
 // CudaTags: upstream AprilTag's apriltag.c (third_party/apriltag; its
 // SHA-256 is checked in ../CMakeLists.txt) with only quad_decode_index()
 // and reconcile_detections() split out of quad_decode_task() and
-// apriltag_detector_detect() and exported, as frc971's patched copy does.
+// apriltag_detector_detect() and exported, as frc971's patched copy does,
+// and, for color input, quad_decode_index_layout(): the same decode reading
+// gray values from color pixels (ct_pixel_layout.h) as it samples them.
 /* Copyright (C) 2013-2016, The Regents of The University of Michigan.
 All rights reserved.
 
@@ -56,6 +58,7 @@ either expressed or implied, of the Regents of The University of Michigan.
 #include "common/debug_print.h"
 
 #include "apriltag_math.h"
+#include "ct_pixel_layout.h"
 
 #include "common/postscript_utils.h"
 
@@ -522,7 +525,7 @@ static int quad_update_homographies(struct quad *quad)
     return -1;
 }
 
-static double value_for_pixel(image_u8_t *im, double px, double py) {
+static double value_for_pixel(image_u8_t *im, const ct_pixel_layout *layout, double px, double py) {
     int x1 = floor(px - 0.5);
     int x2 = ceil(px - 0.5);
     double x = px - 0.5 - x1;
@@ -532,10 +535,12 @@ static double value_for_pixel(image_u8_t *im, double px, double py) {
     if (x1 < 0 || x2 >= im->width || y1 < 0 || y2 >= im->height) {
         return -1;
     }
-    return im->buf[y1*im->stride + x1]*(1-x)*(1-y) +
-            im->buf[y1*im->stride + x2]*x*(1-y) +
-            im->buf[y2*im->stride + x1]*(1-x)*y +
-            im->buf[y2*im->stride + x2]*x*y;
+    const uint8_t *row1 = im->buf + y1*im->stride;
+    const uint8_t *row2 = im->buf + y2*im->stride;
+    return ct_pixel_gray(row1, x1, layout)*(1-x)*(1-y) +
+            ct_pixel_gray(row1, x2, layout)*x*(1-y) +
+            ct_pixel_gray(row2, x1, layout)*(1-x)*y +
+            ct_pixel_gray(row2, x2, layout)*x*y;
 }
 
 static void sharpen(apriltag_detector_t* td, double* values, int size) {
@@ -571,7 +576,7 @@ static void sharpen(apriltag_detector_t* td, double* values, int size) {
 }
 
 // returns the decision margin. Return < 0 if the detection should be rejected.
-static float quad_decode(apriltag_detector_t* td, apriltag_family_t *family, image_u8_t *im, struct quad *quad, struct quick_decode_entry *entry, image_u8_t *im_samples)
+static float quad_decode(apriltag_detector_t* td, apriltag_family_t *family, image_u8_t *im, const ct_pixel_layout *layout, struct quad *quad, struct quick_decode_entry *entry, image_u8_t *im_samples)
 {
     // decode the tag binary contents by sampling the pixel
     // closest to the center of each bit cell.
@@ -651,7 +656,7 @@ static float quad_decode(apriltag_detector_t* td, apriltag_family_t *family, ima
             if (ix < 0 || iy < 0 || ix >= im->width || iy >= im->height)
                 continue;
 
-            int v = im->buf[iy*im->stride + ix];
+            int v = ct_pixel_gray(im->buf + iy*im->stride, ix, layout);
 
             if (im_samples) {
                 im_samples->buf[iy*im_samples->stride + ix] = (1-is_white)*255;
@@ -705,7 +710,7 @@ static float quad_decode(apriltag_detector_t* td, apriltag_family_t *family, ima
         double px, py;
         homography_project(quad->H, tagx, tagy, &px, &py);
 
-        double v = value_for_pixel(im, px, py);
+        double v = value_for_pixel(im, layout, px, py);
 
         if (v == -1) {
             continue;
@@ -921,9 +926,11 @@ static void refine_edges(apriltag_detector_t *td, image_u8_t *im_orig, struct qu
 }
 
 // Exposed for frc971's GPU detector (apriltag_detect.cu): decode one quad
-// against every tag family, adding hits to detections.
-void quad_decode_index(apriltag_detector_t *td, struct quad *quad_original, image_u8_t *im,
-                       image_u8_t *im_samples, zarray_t *detections)
+// against every tag family, adding hits to detections. With a layout, im is
+// a color image (stride in bytes) read through ct_pixel_gray().
+void quad_decode_index_layout(apriltag_detector_t *td, struct quad *quad_original,
+                              image_u8_t *im, const ct_pixel_layout *layout,
+                              image_u8_t *im_samples, zarray_t *detections)
 {
     // make sure the homographies are computed...
     if (quad_update_homographies(quad_original) != 0)
@@ -943,7 +950,7 @@ void quad_decode_index(apriltag_detector_t *td, struct quad *quad_original, imag
 
         struct quick_decode_entry entry;
 
-        float decision_margin = quad_decode(td, family, im, quad, &entry, im_samples);
+        float decision_margin = quad_decode(td, family, im, layout, quad, &entry, im_samples);
 
         if (decision_margin >= 0 && entry.hamming < 255) {
             apriltag_detection_t *det = calloc(1, sizeof(apriltag_detection_t));
@@ -993,6 +1000,12 @@ void quad_decode_index(apriltag_detector_t *td, struct quad *quad_original, imag
 
         quad_destroy(quad);
     }
+}
+
+void quad_decode_index(apriltag_detector_t *td, struct quad *quad_original, image_u8_t *im,
+                       image_u8_t *im_samples, zarray_t *detections)
+{
+    quad_decode_index_layout(td, quad_original, im, NULL, im_samples, detections);
 }
 
 static void quad_decode_task(void *_u)

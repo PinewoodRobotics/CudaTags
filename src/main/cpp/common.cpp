@@ -61,6 +61,9 @@ std::string ValidateOptions(const Camera &camera, const Distortion &distortion,
     error << "decode_sharpening must be finite and >= 0";
   } else if (!Finite(options.tag_size_m) || options.tag_size_m < 0.0) {
     error << "tag_size_m must be finite and >= 0 (0 disables pose)";
+  } else if (options.color_conversion != ColorConversion::kWhileDetecting &&
+             options.color_conversion != ColorConversion::kBeforeDetecting) {
+    error << "unknown color_conversion";
   } else if (!Finite(camera.fx) || !Finite(camera.fy) || camera.fx <= 0.0 ||
              camera.fy <= 0.0) {
     error << "camera fx and fy must be finite and > 0";
@@ -96,6 +99,15 @@ std::string ValidateImage(const ImageView &image) {
 }
 
 void ConvertToGray(const ImageView &image, std::vector<uint8_t> *gray) {
+  // Validate before sizing the output from the image's dimensions.
+  if (const std::string error = ValidateImage(image); !error.empty()) {
+    throw std::invalid_argument(error);
+  }
+  gray->resize(static_cast<size_t>(image.width) * image.height);
+  ConvertToGray(image, gray->data());
+}
+
+void ConvertToGray(const ImageView &image, uint8_t *gray) {
   if (const std::string error = ValidateImage(image); !error.empty()) {
     throw std::invalid_argument(error);
   }
@@ -105,8 +117,7 @@ void ConvertToGray(const ImageView &image, std::vector<uint8_t> *gray) {
   }
   const int width = static_cast<int>(image.width);
   const int height = static_cast<int>(image.height);
-  gray->resize(static_cast<size_t>(width) * height);
-  cv::Mat out(height, width, CV_8UC1, gray->data());
+  cv::Mat out(height, width, CV_8UC1, gray);
   const cv::Mat in(height, width, CV_MAKETYPE(CV_8U, Channels(image.format)),
                    const_cast<uint8_t *>(image.data), image.stride);
   switch (image.format) {
@@ -127,7 +138,7 @@ void ConvertToGray(const ImageView &image, std::vector<uint8_t> *gray) {
       break;
   }
   // cvtColor must have written into the caller's buffer, not reallocated.
-  if (out.data != gray->data()) {
+  if (out.data != gray) {
     throw std::runtime_error("color conversion reallocated its output");
   }
 }

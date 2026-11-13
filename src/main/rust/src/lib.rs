@@ -15,6 +15,25 @@
 //! # Ok::<(), cuda_tags::Error>(())
 //! ```
 //!
+//! # Color frames and zero-copy input
+//!
+//! [`Detector::detect_image`] takes gray, BGR, RGB, BGRA or RGBA frames
+//! (with any row stride) and gives the same detections as converting with
+//! OpenCV's `cvtColor` first. Fastest of all: write the frame into
+//! [`Detector::input_buffer`] and call [`Detector::detect_input_buffer`];
+//! the GPU then reads it in place and converts color itself (see
+//! [`ColorConversion`]).
+//!
+//! ```no_run
+//! # use cuda_tags::{CameraIntrinsics, Detector, Distortion, Options, PixelFormat};
+//! # let camera = CameraIntrinsics { fx: 600.0, fy: 600.0, cx: 320.0, cy: 240.0 };
+//! # let mut detector = Detector::with_options(camera, Distortion::default(), 640, 480, &Options::default())?;
+//! # let rgb_frame = vec![0u8; 640 * 480 * 3];
+//! detector.input_buffer()[..rgb_frame.len()].copy_from_slice(&rgb_frame); // or capture into it
+//! let tags = detector.detect_input_buffer(640 * 3, PixelFormat::Rgb)?;
+//! # Ok::<(), cuda_tags::Error>(())
+//! ```
+//!
 //! # Building
 //!
 //! The GPU detector is built only with the `cuda` feature, on Linux, with a
@@ -59,6 +78,56 @@ pub struct Distortion {
     pub k3: f64,
 }
 
+/// Pixel layouts accepted by [`Detector::detect_image`]: 8 bits per channel,
+/// interleaved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixelFormat {
+    Gray,
+    Bgr,
+    Rgb,
+    Bgra,
+    Rgba,
+}
+
+impl PixelFormat {
+    /// Bytes per pixel.
+    pub fn channels(self) -> usize {
+        match self {
+            PixelFormat::Gray => 1,
+            PixelFormat::Bgr | PixelFormat::Rgb => 3,
+            PixelFormat::Bgra | PixelFormat::Rgba => 4,
+        }
+    }
+
+    #[cfg(cuda_tags_native)]
+    fn raw(self) -> i32 {
+        match self {
+            PixelFormat::Gray => 0,
+            PixelFormat::Bgr => 1,
+            PixelFormat::Rgb => 2,
+            PixelFormat::Bgra => 3,
+            PixelFormat::Rgba => 4,
+        }
+    }
+}
+
+/// How a color frame in [`Detector::input_buffer`] becomes gray. Both give
+/// the same gray values as OpenCV's `cvtColor`, so the same detections.
+/// (Color frames passed from elsewhere are converted on the CPU, straight
+/// into GPU-visible memory.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorConversion {
+    /// The GPU converts the whole frame first. The default: as fast or
+    /// faster in most measured cases, and it keeps per-pixel work off the
+    /// CPU, which is a Jetson's bottleneck.
+    #[default]
+    BeforeDetecting,
+    /// Convert only the pixels the detector reads: the GPU as it decimates,
+    /// the CPU as it decodes. No gray frame is made. Ties on small busy
+    /// frames; slower on large ones, where the decode samples many pixels.
+    WhileDetecting,
+}
+
 /// Detector tunables. The defaults match AprilTag's, as frc971 uses them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Options {
@@ -78,6 +147,9 @@ pub struct Options {
     /// Black-border edge length of the tags in meters. When set, every
     /// detection carries a [`Pose`]. Default `None`.
     pub tag_size_m: Option<f64>,
+    /// How color frames in the input buffer are converted. Default
+    /// [`ColorConversion::BeforeDetecting`].
+    pub color_conversion: ColorConversion,
 }
 
 impl Default for Options {
@@ -90,6 +162,7 @@ impl Default for Options {
             refine_edges: true,
             decode_sharpening: 0.25,
             tag_size_m: None,
+            color_conversion: ColorConversion::BeforeDetecting,
         }
     }
 }
@@ -137,6 +210,8 @@ pub enum Error {
     /// A frame's length is not the detector's `width * height`. The
     /// detector never reallocates for a new size.
     FrameSize { expected: usize, actual: usize },
+    /// A frame's row stride is shorter than one row of pixels.
+    Stride { minimum: usize, actual: usize },
     /// The configuration was rejected or the native detector failed.
     Native(String),
 }
@@ -150,6 +225,10 @@ impl fmt::Display for Error {
             Error::FrameSize { expected, actual } => write!(
                 f,
                 "a {actual}-byte frame does not fit a detector built for {expected} pixels"
+            ),
+            Error::Stride { minimum, actual } => write!(
+                f,
+                "a row stride of {actual} bytes is shorter than one row ({minimum} bytes)"
             ),
             Error::Native(message) => write!(f, "CudaTags: {message}"),
         }
@@ -171,10 +250,15 @@ pub fn stub_reason() -> Option<&'static str> {
     return Some(env!("CUDA_TAGS_STUB_REASON"));
 }
 
-/// A GPU tag36h11 detector for mono8 frames of one fixed size.
+/// A GPU tag36h11 detector for frames of one fixed size.
 pub struct Detector {
     #[cfg(cuda_tags_native)]
     raw: std::ptr::NonNull<ffi::ct_detector>,
+    /// The detector's pinned input buffer (owned by `raw`).
+    #[cfg(cuda_tags_native)]
+    input: std::ptr::NonNull<u8>,
+    #[cfg(cuda_tags_native)]
+    input_len: usize,
     width: u32,
     height: u32,
     /// Not Send or Sync: the GPU state is bound to the creating thread.
@@ -246,6 +330,62 @@ impl Detector {
         }
         self.detect_native(gray)
     }
+
+    /// Detects tags in a gray or color frame whose rows start `stride` bytes
+    /// apart (at least `width * format.channels()`); `pixels` must hold
+    /// `(height - 1) * stride + width * channels` bytes. Color frames are
+    /// converted on the CPU into GPU-visible memory; for the fastest path,
+    /// see [`Detector::input_buffer`].
+    pub fn detect_image(
+        &mut self,
+        pixels: &[u8],
+        stride: usize,
+        format: PixelFormat,
+    ) -> Result<Vec<Detection>, Error> {
+        self.check_frame(pixels.len(), stride, format)?;
+        self.detect_image_native(pixels.as_ptr(), pixels.len(), stride, format)
+    }
+
+    /// The detector's pinned, GPU-mapped input buffer (`width * height * 4`
+    /// bytes). Write a frame into its start, in any [`PixelFormat`], and call
+    /// [`Detector::detect_input_buffer`]: the GPU reads it in place, with no
+    /// copy. On a Jetson this memory is shared by the CPU and GPU.
+    pub fn input_buffer(&mut self) -> &mut [u8] {
+        self.input_buffer_native()
+    }
+
+    /// Detects tags in the frame at the start of [`Detector::input_buffer`],
+    /// whose rows start `stride` bytes apart.
+    pub fn detect_input_buffer(
+        &mut self,
+        stride: usize,
+        format: PixelFormat,
+    ) -> Result<Vec<Detection>, Error> {
+        let (pointer, length) = {
+            let buffer = self.input_buffer();
+            (buffer.as_ptr(), buffer.len())
+        };
+        self.check_frame(length, stride, format)?;
+        self.detect_image_native(pointer, length, stride, format)
+    }
+
+    fn check_frame(&self, length: usize, stride: usize, format: PixelFormat) -> Result<(), Error> {
+        let row = self.width as usize * format.channels();
+        if stride < row {
+            return Err(Error::Stride {
+                minimum: row,
+                actual: stride,
+            });
+        }
+        let expected = (self.height as usize - 1) * stride + row;
+        if length < expected {
+            return Err(Error::FrameSize {
+                expected,
+                actual: length,
+            });
+        }
+        Ok(())
+    }
 }
 
 #[cfg(not(cuda_tags_native))]
@@ -264,6 +404,20 @@ impl Detector {
 
     fn detect_native(&mut self, _gray: &[u8]) -> Result<Vec<Detection>, Error> {
         // A stub Detector cannot be constructed.
+        unreachable!("stub detectors are never created")
+    }
+
+    fn detect_image_native(
+        &mut self,
+        _pixels: *const u8,
+        _length: usize,
+        _stride: usize,
+        _format: PixelFormat,
+    ) -> Result<Vec<Detection>, Error> {
+        unreachable!("stub detectors are never created")
+    }
+
+    fn input_buffer_native(&mut self) -> &mut [u8] {
         unreachable!("stub detectors are never created")
     }
 }
@@ -307,14 +461,32 @@ impl Detector {
             raw_options.decode_sharpening = options.decode_sharpening;
             raw_options.tag_size_m = options.tag_size_m.unwrap_or(0.0);
             let raw = ffi::ct_create_with_options(&raw_camera, &raw_options);
-            match std::ptr::NonNull::new(raw) {
-                Some(raw) => Ok(Detector {
+            let Some(raw) = std::ptr::NonNull::new(raw) else {
+                return Err(Error::Native(last_error()));
+            };
+            let conversion = match options.color_conversion {
+                ColorConversion::WhileDetecting => ffi::CT_COLOR_WHILE_DETECTING,
+                ColorConversion::BeforeDetecting => ffi::CT_COLOR_BEFORE_DETECTING,
+            };
+            let mut input_len = 0usize;
+            let input = ffi::ct_input_buffer(raw.as_ptr(), &mut input_len);
+            match (
+                std::ptr::NonNull::new(input),
+                ffi::ct_set_color_conversion(raw.as_ptr(), conversion),
+            ) {
+                (Some(input), 0) => Ok(Detector {
                     raw,
+                    input,
+                    input_len,
                     width,
                     height,
                     _thread_bound: PhantomData,
                 }),
-                None => Err(Error::Native(last_error())),
+                _ => {
+                    let error = Error::Native(last_error());
+                    ffi::ct_destroy(raw.as_ptr());
+                    Err(error)
+                }
             }
         }
     }
@@ -324,8 +496,36 @@ impl Detector {
         // serializes calls); `gray` is valid for `gray.len()` bytes; the
         // detection buffers are valid until the next ct_detect, which cannot
         // happen while this borrow lasts.
+        let count = unsafe { ffi::ct_detect(self.raw.as_ptr(), gray.as_ptr(), gray.len()) };
+        self.collect(count)
+    }
+
+    fn detect_image_native(
+        &mut self,
+        pixels: *const u8,
+        length: usize,
+        stride: usize,
+        format: PixelFormat,
+    ) -> Result<Vec<Detection>, Error> {
+        // SAFETY: as in detect_native; `pixels` is valid for `length` bytes
+        // (a borrowed slice or the detector's own input buffer).
+        let count = unsafe {
+            ffi::ct_detect_image(self.raw.as_ptr(), pixels, length, stride, format.raw())
+        };
+        self.collect(count)
+    }
+
+    fn input_buffer_native(&mut self) -> &mut [u8] {
+        // SAFETY: the buffer is owned by the live detector, which frees it
+        // only in Drop; &mut self makes this the only reference to it.
+        unsafe { std::slice::from_raw_parts_mut(self.input.as_ptr(), self.input_len) }
+    }
+
+    /// Reads the `count` detections of the last ct_detect* call.
+    fn collect(&mut self, count: i32) -> Result<Vec<Detection>, Error> {
+        // SAFETY: `raw` is a live detector; its detection buffers are valid
+        // until the next ct_detect*, which cannot run during this borrow.
         unsafe {
-            let count = ffi::ct_detect(self.raw.as_ptr(), gray.as_ptr(), gray.len());
             if count < 0 {
                 return Err(Error::Native(last_error()));
             }

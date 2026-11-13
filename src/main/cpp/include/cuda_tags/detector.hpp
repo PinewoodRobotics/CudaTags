@@ -48,6 +48,21 @@ struct Distortion {
 };
 
 // Detector configuration. Only tag36h11 is supported.
+// How a color frame written into Detector::InputBuffer() becomes gray. Both
+// give the same gray values as OpenCV's cvtColor, so the same detections.
+// (Color frames elsewhere are converted by OpenCV on the CPU, straight into
+// GPU-visible memory, which is faster than copying them for the GPU.)
+enum class ColorConversion {
+  // The GPU converts the whole frame first, into memory the CPU decode
+  // reads. The default: as fast or faster in most measured cases, and it
+  // keeps per-pixel work off the CPU, which is a Jetson's bottleneck.
+  kBeforeDetecting,
+  // Only the pixels the detector reads are converted: by the GPU as it
+  // decimates and by the CPU as it decodes. No gray frame is made. Ties on
+  // small busy frames; slower on large ones (the decode samples many pixels).
+  kWhileDetecting,
+};
+
 struct Options {
   // Image size in pixels. Both must be multiples of 8 and
   // width * height must be below 2^22 (e.g. 1920x1080 is fine).
@@ -72,6 +87,8 @@ struct Options {
   // Edge length of the tag's black border in meters. When > 0, every
   // detection carries a pose; 0 disables the pose solve.
   double tag_size_m = 0.0;
+  // See ColorConversion.
+  ColorConversion color_conversion = ColorConversion::kBeforeDetecting;
 };
 
 // Camera-from-tag transform: p_camera = rotation * p_tag + translation.
@@ -131,6 +148,8 @@ std::string ValidateImage(const ImageView &image);
 // Converts any supported view to a contiguous width * height gray image.
 // Throws std::invalid_argument for an invalid view.
 void ConvertToGray(const ImageView &image, std::vector<uint8_t> *gray);
+// Into a caller's buffer of image.width * image.height bytes.
+void ConvertToGray(const ImageView &image, uint8_t *gray);
 
 // Solves the camera-from-tag pose of one tag from its corners exactly as a
 // Detection reports them (corner order, distorted pixels, AprilTag's +0.5
@@ -152,19 +171,35 @@ class Detector {
   Detector(const Detector &) = delete;
   Detector &operator=(const Detector &) = delete;
 
-  // Detects tags in an image of exactly options().width x height. Color
-  // images are converted to gray on the CPU first.
+  // Detects tags in an image of exactly options().width x height, gray or
+  // color. Frames in InputBuffer() are read by the GPU in place; others are
+  // uploaded (gray) or converted on the CPU into GPU-visible memory (color
+  // or padded gray).
   const std::vector<Detection> &Detect(const ImageView &image);
 
   // Contiguous gray image; length must be width * height.
   const std::vector<Detection> &DetectGray(const uint8_t *pixels,
                                            size_t length);
 
+  // Pinned, GPU-mapped memory of InputBufferSize() bytes (width * height *
+  // 4) owned by the detector; null without CUDA. Write a frame here, in any
+  // PixelFormat and with any stride that fits, and pass a view of it to
+  // Detect (or DetectGray): the GPU reads it in place, with no copy. On a
+  // Jetson this memory is shared by the CPU and GPU. Do not change the
+  // frame while a detection that reads it is running.
+  uint8_t *InputBuffer();
+  size_t InputBufferSize() const;
+
+  // Changes options().color_conversion.
+  void SetColorConversion(ColorConversion conversion);
+
   const Options &options() const;
   const Camera &camera() const;
   const Distortion &distortion() const;
 
  private:
+  const std::vector<Detection> &CollectDetections();
+
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

@@ -63,7 +63,50 @@ git submodule update --init detection/third_party/apriltag
 - **Tunables:** `threads` (decode threads), `decimate` (1 or 2, default 2),
   `min_white_black_diff` (default 5), `max_hamming` (0 to 2, default 1),
   `refine_edges` (default on), `decode_sharpening` (default 0.25), and
-  `tag_size_m` (0 or unset disables the pose).
+  `tag_size_m` (0 or unset disables the pose), and `color_conversion` (see
+  below).
+
+## Color frames and zero-copy input
+
+Every interface accepts gray, BGR, RGB, BGRA and RGBA frames. Color is
+converted with OpenCV's BT.601 weights, bit for bit, so detections are
+identical to converting with `cv::cvtColor` first. Only the speed differs:
+
+- **Fastest: write the frame into the detector's input buffer.** Each
+  detector owns pinned, GPU-mapped memory (`width * height * 4` bytes; on a
+  Jetson it is shared by the CPU and GPU). A frame written there is read by
+  the GPU in place, with no copy, and color is converted on the GPU.
+  - Python: `buf = detector.input_buffer(3)` (a numpy view), fill it (e.g.
+    `np.copyto(buf, frame)` or `cv2.cvtColor(..., dst=buf)`), then
+    `detector.process(buf, "rgb")`.
+  - Rust: `detector.input_buffer()` and `detector.detect_input_buffer(stride,
+    PixelFormat::Rgb)`.
+  - C: `ct_input_buffer()`, then `ct_detect_image()` (or `ct_detect()` for
+    gray) on a pointer into it.
+  - Java: `detect(pixels, stride, channels, rgb)` copies the `byte[]`
+    straight into the buffer (it must leave the Java heap anyway).
+- **Frames elsewhere** are converted on the CPU straight into GPU-visible
+  memory (color or padded gray), or uploaded (packed gray). The GPU never
+  copies its gray image back to the CPU.
+- `color_conversion` picks how buffered color frames become gray:
+  `before_detecting` (default; the GPU converts the whole frame first) or
+  `while_detecting` (no gray frame: the GPU converts only the pixels it
+  decimates, the CPU decode only the pixels it samples). They tie on small
+  busy frames; `before_detecting` is faster on large ones.
+
+Measured on an RTX 2080 Ti (fastest of 1200 frames, 1 decode thread;
+before = the gray path that uploaded each frame and copied it back, with
+color converted by OpenCV on the CPU):
+
+| Frame | Gray, before | Gray in buffer | RGB, before | RGB in buffer |
+|---|---|---|---|---|
+| 640x480 | 0.78 ms | 0.46 ms (-41%) | 1.99 ms | 1.30 ms (-35%) |
+| 1280x800 | 1.03 ms | 0.56 ms (-45%) | 3.73 ms | 3.04 ms (-18%) |
+| 1456x1088 | 1.30 ms | 0.64 ms (-50%) | 5.73 ms | 4.71 ms (-18%) |
+| 1920x1080 | 1.47 ms | 0.72 ms (-51%) | 6.91 ms | 6.35 ms (-8%) |
+
+(Gray: tags on a plain background; RGB: a colored background with sensor
+noise, whose many small blobs make the CPU decode the larger cost.)
 
 ## Rust
 
@@ -116,7 +159,9 @@ cargo run --release --features cuda --example detect_pgm -- [image.pgm] [fx fy c
   and `ct_abi_version`, compatible with the drone project's `cuda_tags_ffi`
   shim.
 - Additions: `ct_options_init` with `ct_create_with_options` for every
-  tunable, `ct_detection_homography`, and `ct_cuda_available`.
+  tunable, `ct_detection_homography`, `ct_cuda_available`, and (color and
+  zero-copy input) `ct_detect_image`, `ct_input_buffer` and
+  `ct_set_color_conversion`. All additive: the ABI version stays 1.
 
 ```sh
 ./install/self.bash   # build, test, install to /usr/local (PREFIX=... to change)
@@ -148,6 +193,9 @@ for tag in detector.process(frame):          # (h, w), (h, w, 3) or (h, w, 4) ui
   other strided views are copied first.
 - Three- and four-channel images are BGR/BGRA by default. Pass
   `color_order="rgb"` for RGB/RGBA.
+- `detector.input_buffer(channels)` returns a view of the detector's pinned
+  input buffer; frames written into it skip every copy (see above).
+  `color_conversion="before_detecting"` (default) or `"while_detecting"`.
 - `process` releases the GIL while it detects.
 - `cuda_tags.to_gray(image)` returns the gray image the detector sees.
 
@@ -159,6 +207,7 @@ Configure with `-DCUDATAGS_BUILD_JAVA=ON` to build `cuda-tags.jar` and
 ```java
 try (CudaTags detector = new CudaTags(640, 480, fx, fy, cx, cy, distortion, 2, 0.1651)) {
   CudaTags.Detection[] tags = detector.detect(grayBytes);    // or detect(pixels, stride, channels), detectMat(mat.getNativeObjAddr())
+  tags = detector.detect(rgbBytes, 640 * 3, 3, true);         // RGB; false for BGR
 }
 ```
 
@@ -177,11 +226,13 @@ Options:
 - `CUDATAGS_BUILD_PYTHON`: on under scikit-build.
 - `CUDATAGS_BUILD_JAVA`: default off.
 - `CUDATAGS_BUILD_TESTS`: on for top-level builds.
-- `CMAKE_CUDA_ARCHITECTURES`: default `87`.
+- `CMAKE_CUDA_ARCHITECTURES`: default `87`, or the `CMAKE_CUDA_ARCHITECTURES`
+  (or `CUDAARCHS`) environment variable, which `pip install .` also honours.
 
 Tests:
 
-- **`core_cpu`** (any machine): option validation, color conversion with
+- **`core_cpu`** (any machine): the shared gray formula against
+  `cv::cvtColor` for all 2^24 colors, option validation, color conversion with
   strides and channel orders, the pose solve with distortion, and C ABI error
   handling.
 - **`golden_cpu`** (any machine): `tests/golden/tags_640x480.pgm`, three tags
@@ -190,7 +241,10 @@ Tests:
   that the GPU detector links against. Ids, sub-pixel corners and poses must
   match the ground truth in `tags_640x480.txt`.
 - **`golden_gpu`** (CUDA builds): the same image and checks through the GPU
-  detector, plus rejection of a wrongly sized frame.
+  detector, plus rejection of a wrongly sized frame, and that color frames
+  (every format, packed and padded, from caller memory and from the input
+  buffer, both color conversions) give exactly the detections of the gray
+  frame `cv::cvtColor` makes.
 - **`tests/test_binding.py`**: the Python module. It runs on a stub build
   too; set `CUDA_TAGS_EXTENSION` to the built `cuda_tags*.so`.
 - **`cargo test`**: the Rust crate. On a stub build it checks the

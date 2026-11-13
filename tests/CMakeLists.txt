@@ -4,8 +4,9 @@
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
 
 add_executable(core_cpu_test core_cpu_test.cpp)
-target_include_directories(core_cpu_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(core_cpu_test PRIVATE cuda_tags_core opencv_core opencv_calib3d)
+target_include_directories(core_cpu_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${OpenCV_INCLUDE_DIRS}
+  ${PROJECT_SOURCE_DIR}/detection)
+target_link_libraries(core_cpu_test PRIVATE cuda_tags_core opencv_core opencv_imgproc opencv_calib3d)
 add_test(NAME core_cpu COMMAND core_cpu_test)
 
 set(GOLDEN_IMAGE ${CMAKE_CURRENT_SOURCE_DIR}/golden/tags_640x480.pgm)

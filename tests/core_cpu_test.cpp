@@ -1,6 +1,7 @@
 // CPU-side tests of the core and the C ABI: option validation, image
-// conversion (strides, channel orders), the pose solve (with distortion)
-// and the C ABI's error handling. Runs with or without CUDA.
+// conversion (strides, channel orders), the shared gray formula against
+// OpenCV, the pose solve (with distortion) and the C ABI's error handling.
+// Runs with or without CUDA.
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -10,6 +11,9 @@
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
+#include "apriltag_971/ct_pixel_layout.h"
 
 #include "cuda_tags/cuda_tags.h"
 #include "cuda_tags/detector.hpp"
@@ -64,6 +68,12 @@ void TestValidateOptions() {
   }));
   EXPECT_TRUE(invalid([](Options &, Camera &, Distortion &d) {
     d.k3 = std::nan("");
+  }));
+  EXPECT_TRUE(invalid([](Options &o, Camera &, Distortion &) {
+    o.color_conversion = static_cast<cuda_tags::ColorConversion>(7);
+  }));
+  EXPECT_TRUE(!invalid([](Options &o, Camera &, Distortion &) {
+    o.color_conversion = cuda_tags::ColorConversion::kBeforeDetecting;
   }));
   // 1920x1080 and decimate 1 are fine.
   EXPECT_TRUE(!invalid([](Options &o, Camera &, Distortion &) {
@@ -135,6 +145,34 @@ void TestConvertToGray() {
                         PixelFormat::kBgr}));
 }
 
+// The GPU kernels and the CPU decode read color through ct_pixel_gray; it
+// must equal cv::cvtColor for every color, in both channel orders, so every
+// color path gives the same detections as converting with OpenCV first.
+void TestPixelGrayMatchesOpenCv() {
+  cv::Mat colors(4096, 4096, CV_8UC3);
+  for (int i = 0; i < (1 << 24); ++i) {
+    colors.data[3 * i] = static_cast<uint8_t>(i);
+    colors.data[3 * i + 1] = static_cast<uint8_t>(i >> 8);
+    colors.data[3 * i + 2] = static_cast<uint8_t>(i >> 16);
+  }
+  const ct_pixel_layout bgr{3, {2, 1, 0}, {9798, 19235, 3735}};
+  const ct_pixel_layout rgb{3, {0, 1, 2}, {9798, 19235, 3735}};
+  for (const bool rgb_order : {false, true}) {
+    cv::Mat gray;
+    cv::cvtColor(colors, gray,
+                 rgb_order ? cv::COLOR_RGB2GRAY : cv::COLOR_BGR2GRAY);
+    long mismatches = 0;
+    for (int i = 0; i < (1 << 24); ++i) {
+      mismatches += gray.data[i] !=
+                    ct_pixel_gray(colors.data, i, rgb_order ? &rgb : &bgr);
+    }
+    EXPECT_TRUE(mismatches == 0);
+  }
+  // Gray (NULL layout) reads the byte as is.
+  const uint8_t row[] = {7, 200};
+  EXPECT_TRUE(ct_pixel_gray(row, 1, nullptr) == 200);
+}
+
 void TestSolveTagPose() {
   const double tag_size = 0.1651, s = tag_size / 2;
   const Distortion distortion{-0.31, 0.12, 0.0012, -0.0008, -0.02};
@@ -201,6 +239,13 @@ void TestCAbi() {
   double homography[9];
   EXPECT_TRUE(ct_detection_homography(nullptr, 0, homography) == -1);
   ct_destroy(nullptr);
+  const uint8_t pixel = 0;
+  EXPECT_TRUE(ct_detect_image(nullptr, &pixel, 1, 1, CT_FORMAT_RGB) == -1);
+  EXPECT_TRUE(ct_input_buffer(nullptr, nullptr) == nullptr);
+  size_t size = 123;
+  EXPECT_TRUE(ct_input_buffer(nullptr, &size) == nullptr && size == 0);
+  EXPECT_TRUE(ct_set_color_conversion(nullptr, CT_COLOR_WHILE_DETECTING) ==
+              -1);
 
   // The error is thread-local and survives successful calls.
   ct_create(&camera, 641, 480, 1, 0.1);
@@ -242,6 +287,7 @@ void TestDetectorWithoutCuda() {
 int main() {
   TestValidateOptions();
   TestConvertToGray();
+  TestPixelGrayMatchesOpenCv();
   TestSolveTagPose();
   TestCAbi();
   TestDetectorWithoutCuda();

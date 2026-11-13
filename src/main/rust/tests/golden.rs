@@ -3,7 +3,9 @@
 //! a stub build checks that construction fails cleanly instead.
 use std::path::PathBuf;
 
-use cuda_tags::{CameraIntrinsics, Detector, Distortion, Error, Options};
+use cuda_tags::{
+    CameraIntrinsics, ColorConversion, Detector, Distortion, Error, Options, PixelFormat,
+};
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -127,4 +129,134 @@ fn golden_image() {
     );
     // The detector still works afterwards.
     assert_eq!(detector.detect(&pixels).unwrap().len(), expected.len());
+}
+
+/// OpenCV's 8-bit BT.601 conversion (cv::cvtColor), for building references.
+fn luma(r: u8, g: u8, b: u8) -> u8 {
+    ((u32::from(r) * 9798 + u32::from(g) * 19235 + u32::from(b) * 3735 + (1 << 14)) >> 15) as u8
+}
+
+#[test]
+fn color_frames_match_converting_first() {
+    let (camera, tag_size, _) = read_scene();
+    let (width, height, gray) = read_pgm(&golden("tags_640x480.pgm"));
+    let (w, h) = (width as usize, height as usize);
+    // A warm cast with uneven channels, so the weights matter.
+    let tint = |v: u8, k: u32, add: u32| ((u32::from(v) * k / 100 + add).min(255)) as u8;
+    let mut rgb = Vec::with_capacity(w * h * 3);
+    let mut expected_gray = Vec::with_capacity(w * h);
+    for (i, &v) in gray.iter().enumerate() {
+        let (r, g, b) = (
+            tint(v, 100, (i % 7) as u32),
+            tint(v, 83, 0),
+            tint(v, 61, (i % 5) as u32),
+        );
+        rgb.extend_from_slice(&[r, g, b]);
+        expected_gray.push(luma(r, g, b));
+    }
+    let bgr: Vec<u8> = rgb.chunks(3).flat_map(|p| [p[2], p[1], p[0]]).collect();
+    let rgba: Vec<u8> = rgb
+        .chunks(3)
+        .flat_map(|p| [p[0], p[1], p[2], 255])
+        .collect();
+    // RGB rows padded to a 2000-byte stride.
+    let stride = 2000;
+    let mut padded = vec![0u8; (h - 1) * stride + w * 3];
+    for row in 0..h {
+        padded[row * stride..row * stride + w * 3]
+            .copy_from_slice(&rgb[row * w * 3..(row + 1) * w * 3]);
+    }
+
+    for conversion in [
+        ColorConversion::WhileDetecting,
+        ColorConversion::BeforeDetecting,
+    ] {
+        let options = Options {
+            threads: 2,
+            tag_size_m: Some(tag_size),
+            color_conversion: conversion,
+            ..Options::default()
+        };
+        let mut detector =
+            match Detector::with_options(camera, Distortion::default(), width, height, &options) {
+                Ok(detector) => detector,
+                Err(Error::Unavailable(reason)) => {
+                    eprintln!("skipping the GPU check: {reason}");
+                    return;
+                }
+                Err(error) => panic!("{error}"),
+            };
+        let reference = detector.detect(&expected_gray).unwrap();
+        assert_eq!(reference.len(), 3);
+        let check = |label: &str, got: Vec<cuda_tags::Detection>| {
+            assert_eq!(got, reference, "{label} with {conversion:?}");
+        };
+        check(
+            "rgb slice",
+            detector
+                .detect_image(&rgb, w * 3, PixelFormat::Rgb)
+                .unwrap(),
+        );
+        check(
+            "bgr slice",
+            detector
+                .detect_image(&bgr, w * 3, PixelFormat::Bgr)
+                .unwrap(),
+        );
+        check(
+            "rgba slice",
+            detector
+                .detect_image(&rgba, w * 4, PixelFormat::Rgba)
+                .unwrap(),
+        );
+        check(
+            "padded rgb",
+            detector
+                .detect_image(&padded, stride, PixelFormat::Rgb)
+                .unwrap(),
+        );
+        detector.input_buffer()[..rgb.len()].copy_from_slice(&rgb);
+        check(
+            "rgb in buffer",
+            detector
+                .detect_input_buffer(w * 3, PixelFormat::Rgb)
+                .unwrap(),
+        );
+        detector.input_buffer()[..padded.len()].copy_from_slice(&padded);
+        check(
+            "padded rgb in buffer",
+            detector
+                .detect_input_buffer(stride, PixelFormat::Rgb)
+                .unwrap(),
+        );
+        detector.input_buffer()[..bgr.len()].copy_from_slice(&bgr);
+        check(
+            "bgr in buffer",
+            detector
+                .detect_input_buffer(w * 3, PixelFormat::Bgr)
+                .unwrap(),
+        );
+        detector.input_buffer()[..expected_gray.len()].copy_from_slice(&expected_gray);
+        check(
+            "gray in buffer",
+            detector.detect_input_buffer(w, PixelFormat::Gray).unwrap(),
+        );
+
+        // Bad strides and short frames are errors, not reads past the end.
+        assert_eq!(
+            detector.detect_image(&rgb, w * 3 - 1, PixelFormat::Rgb),
+            Err(Error::Stride {
+                minimum: w * 3,
+                actual: w * 3 - 1
+            })
+        );
+        assert!(matches!(
+            detector.detect_image(&rgb[..1000], w * 3, PixelFormat::Rgb),
+            Err(Error::FrameSize { .. })
+        ));
+        assert!(matches!(
+            detector.detect_input_buffer(w * 5, PixelFormat::Rgba),
+            Err(Error::FrameSize { .. })
+        ));
+    }
 }
